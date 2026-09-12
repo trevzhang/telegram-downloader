@@ -1103,6 +1103,8 @@ git commit -m "feat: 添加下载路径与文件名工具"
 
 ### Task 7: 进度聚合 progress.py
 
+> 注：本任务代码在审查后已加固（速度按 transferred 采样、flood_wait_until 截止时间、render_summary 4096 字符上限、active 行按消息 ID 排序）。以仓库中 `src/tgdl/progress.py` 与对应测试为准，本节代码块为初版。
+
 **Files:**
 - Create: `src/tgdl/progress.py`
 - Test: `tests/unit/test_progress.py`
