@@ -10,12 +10,15 @@ import pytest
 from tgdl.config import ConfigError, Settings
 from tgdl.main import (
     BOT_SESSION_NAME,
+    EXIT_INTERRUPTED,
     USER_SESSION_NAME,
     _run_until_first_done,
     ask_phone,
     bot_id_from_token,
     build_clients,
     build_worker_config,
+    disconnect_quietly,
+    make_sigint_handler,
     session_paths,
     start_clients,
 )
@@ -195,3 +198,34 @@ async def test_run_until_first_done_logs_secondary_error_and_reraises_primary(ca
     with caplog.at_level("WARNING"), pytest.raises(RuntimeError, match="queue boom"):
         await _run_until_first_done(queue_fails(), bot_breaks_on_cancel())
     assert "关停任务时出现异常" in caplog.text
+
+
+async def test_sigint_handler_cancels_first_then_force_exits() -> None:
+    exits: list[int] = []
+
+    async def forever() -> None:
+        await asyncio.sleep(10)
+
+    task = asyncio.ensure_future(forever())
+    handler = make_sigint_handler(task, exit_fn=exits.append)
+    handler()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert exits == []
+    handler()
+    assert exits == [EXIT_INTERRUPTED]
+
+
+async def test_disconnect_quietly_survives_hang_and_error(caplog: pytest.LogCaptureFixture) -> None:
+    class _Hang:
+        async def disconnect(self) -> None:
+            await asyncio.sleep(10)
+
+    class _Boom:
+        async def disconnect(self) -> None:
+            raise ConnectionError("gone")
+
+    with caplog.at_level("WARNING"):
+        await disconnect_quietly(_Hang(), "user", timeout=0.01)  # type: ignore[arg-type]
+        await disconnect_quietly(_Boom(), "bot", timeout=0.01)  # type: ignore[arg-type]
+    assert caplog.text.count("断开") == 2

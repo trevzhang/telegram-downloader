@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import signal
 import sys
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from telethon import TelegramClient
@@ -26,6 +28,8 @@ STARTUP_MESSAGE = "✅ tgdl 已启动，发送 /help 查看用法"
 NON_TTY_LOGIN_MESSAGE = "首次登录需要在交互终端运行（输入手机号和验证码）"
 BOT_SESSION_MISMATCH_MESSAGE = "data/bot.session 属于另一个 Bot，请删除后重试"
 BOT_TOKEN_FORMAT_MESSAGE = "BOT_TOKEN 格式不正确，应形如 123456:ABC-DEF"
+EXIT_INTERRUPTED = 130
+DISCONNECT_TIMEOUT_SECONDS = 10.0
 USER_SESSION_IS_BOT_MESSAGE = (
     "data/user.session 登录的是 Bot 而不是你的个人账号，Bot 无法读取频道历史。"
     "请删除 data/user.session 后重新运行，并在提示时输入手机号（不是 Bot Token）"
@@ -111,6 +115,31 @@ async def _send_startup_notice(notifier: Notifier) -> None:
         log.warning("启动通知发送失败（请先在 Telegram 打开 Bot 并发送 /start）：%s", exc)
 
 
+def make_sigint_handler(main_task: asyncio.Task[Any], exit_fn: Callable[[int], Any] = os._exit) -> Callable[[], None]:
+    """第一次 Ctrl+C 取消主任务优雅关停；第二次直接强制退出，避免网络卡住时无法终止。"""
+    presses = 0
+
+    def handler() -> None:
+        nonlocal presses
+        presses += 1
+        if presses == 1:
+            log.info("收到 Ctrl+C，正在关停（再按一次强制退出）")
+            main_task.cancel()
+            return
+        log.warning("再次收到 Ctrl+C，强制退出")
+        exit_fn(EXIT_INTERRUPTED)
+
+    return handler
+
+
+async def disconnect_quietly(client: TelegramClient, name: str, timeout: float = DISCONNECT_TIMEOUT_SECONDS) -> None:
+    """断开连接最多等 timeout 秒，超时或出错只记录警告，保证关停流程一定能走完。"""
+    try:
+        await asyncio.wait_for(client.disconnect(), timeout)  # type: ignore[arg-type]
+    except Exception as exc:
+        log.warning("断开 %s 客户端时出错，已忽略：%s: %s", name, type(exc).__name__, exc)
+
+
 async def _cancel(task: asyncio.Task[Any]) -> None:
     """取消并等待任务结束；关停阶段的次要异常只记录，不掩盖主异常。"""
     task.cancel()
@@ -148,6 +177,9 @@ async def main_async(settings: Settings) -> None:
         log.info("清理残留 .part 文件 %d 个", removed)
 
     user, bot = build_clients(settings)
+    main_task = asyncio.current_task()
+    if main_task is not None:
+        asyncio.get_running_loop().add_signal_handler(signal.SIGINT, make_sigint_handler(main_task))
     try:
         await start_clients(user, bot, settings)
         log.info("用户与 Bot 客户端已登录，代理: %s", "已启用" if settings.proxy() else "直连")
@@ -158,8 +190,8 @@ async def main_async(settings: Settings) -> None:
         await _send_startup_notice(notifier)
         await _run_until_first_done(queue.run_forever(), bot.run_until_disconnected())
     finally:
-        await user.disconnect()
-        await bot.disconnect()
+        await disconnect_quietly(user, "用户")
+        await disconnect_quietly(bot, "Bot")
 
 
 def run() -> None:
@@ -173,7 +205,7 @@ def run() -> None:
     except ConfigError as exc:
         print(f"启动失败: {exc}", file=sys.stderr)
         sys.exit(1)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, asyncio.CancelledError):  # 自定义 SIGINT 处理下 asyncio.run 抛出的是 CancelledError
         print("已退出")
 
 

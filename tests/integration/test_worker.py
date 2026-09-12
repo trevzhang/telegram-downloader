@@ -178,3 +178,24 @@ async def test_missing_download_dir_fails_task_before_scanning(tmp_path: Path) -
     assert "下载目录不存在" in (final.error or "")
     assert any("下载目录不存在" in text for text in notifier.sent)
     assert not (tmp_path / "nas-not-mounted").exists()
+
+
+class _HangingNotifier(FakeNotifier):
+    async def send(self, text: str) -> int:
+        await asyncio.sleep(10)
+        return 1
+
+    async def edit(self, message_id: int, text: str) -> None:
+        await asyncio.sleep(10)
+
+
+async def test_hanging_notifier_does_not_block_task(tmp_path: Path) -> None:
+    client = _client(1)
+    notifier = _HangingNotifier()
+    config = WorkerConfig(
+        download_dir=tmp_path, concurrency=1, max_retries=0, progress_interval=0.01, notify_timeout=0.01
+    )
+    worker = TaskWorker(client, notifier, config)  # type: ignore[arg-type]
+    final = await asyncio.wait_for(worker.run(_state(), lambda s: None), timeout=2)
+    assert final.status == TaskStatus.DONE
+    assert client.download_calls == [1]

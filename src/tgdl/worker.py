@@ -22,6 +22,7 @@ from tgdl.reporter import ProgressReporter
 from tgdl.scanner import ChannelAccessError, resolve_channel, scan
 
 log = logging.getLogger(__name__)
+NOTIFY_TIMEOUT_SECONDS = 15.0
 
 Publish = Callable[[TaskState], None]
 SleepFn = Callable[[float], Awaitable[None]]
@@ -38,6 +39,7 @@ class WorkerConfig:
     concurrency: int
     max_retries: int
     progress_interval: float
+    notify_timeout: float = NOTIFY_TIMEOUT_SECONDS  # 单次 Bot 通知的最长等待，防止网络卡死阻塞任务与关停
 
 
 @dataclass(frozen=True)
@@ -194,7 +196,7 @@ class TaskWorker:
 
     async def _try_send(self, text: str) -> int | None:
         try:
-            return await self._notifier.send(text)
+            return await asyncio.wait_for(self._notifier.send(text), self._config.notify_timeout)
         except Exception as exc:
             log.warning("发送通知失败，忽略：%s", exc)
             return None
@@ -206,7 +208,7 @@ class TaskWorker:
         """优先编辑已有消息；消息不存在或编辑失败时改为重新发送，失败同样只记录警告。"""
         if message_id is not None:
             try:
-                await self._notifier.edit(message_id, text)
+                await asyncio.wait_for(self._notifier.edit(message_id, text), self._config.notify_timeout)
                 return
             except Exception as exc:
                 log.warning("编辑消息 %s 失败，改为重新发送：%s", message_id, exc)
