@@ -83,6 +83,15 @@ def test_split_command_keeps_unquoted_backslash() -> None:
     assert split_command("/dl https://t.me/x --regex ep\\d+") == ("/dl", ["https://t.me/x", "--regex", "ep\\d+"])
 
 
+def test_split_command_keeps_hash_argument() -> None:
+    # shlex.shlex 默认把 # 当注释起始符，/cancel #3 的任务号不能被丢弃
+    assert split_command("/cancel #3") == ("/cancel", ["#3"])
+
+
+def test_split_command_keeps_hash_inside_regex() -> None:
+    assert split_command("/dl x --regex ep#1")[1] == ["x", "--regex", "ep#1"]
+
+
 def test_split_command_unbalanced_quote() -> None:
     with pytest.raises(CommandError, match="引号不匹配"):
         split_command('/dl https://t.me/x --regex "abc')

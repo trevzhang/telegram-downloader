@@ -61,6 +61,8 @@ def split_command(text: str) -> tuple[str, list[str]]:
     lexer = shlex.shlex(text.strip(), posix=True)
     lexer.whitespace_split = True
     lexer.escape = ""
+    # shlex.shlex 默认把 # 当注释起始符，会把 "/cancel #3" 或 "ep#1" 里 # 之后的内容丢掉
+    lexer.commenters = ""
     try:
         tokens = list(lexer)
     except ValueError as exc:
