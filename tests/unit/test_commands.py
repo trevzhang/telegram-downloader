@@ -1,6 +1,6 @@
 import pytest
 
-from tgdl.bot.commands import CommandError, parse_cancel, parse_dl, split_command
+from tgdl.bot.commands import CommandError, parse_cancel, parse_dl, parse_ids, split_command
 from tgdl.models import MediaKind
 
 
@@ -132,3 +132,9 @@ def test_parse_dl_empty_regex_is_none() -> None:
 
 def test_parse_dl_regex_starting_with_dash_via_equals() -> None:
     assert parse_dl(["https://t.me/chan", "--regex=-x"]).regex == "-x"
+
+
+def test_parse_ids_open_ended_means_until_last_message() -> None:
+    assert parse_ids("123-") == (123, None)
+    spec = parse_dl(["https://t.me/somechannel/123", "--ids", "123-"])
+    assert (spec.id_from, spec.id_to) == (123, None)

@@ -13,7 +13,7 @@ from telethon.tl.functions.messages import CheckChatInviteRequest, ImportChatInv
 from telethon.tl.types import PeerChannel
 
 from tests.fakes.telegram import FakeClient, FakeEntity, FakeFile, FakeMessage
-from tgdl.filters import MediaFilter, compile_regex
+from tgdl.filters import MediaFilter, build_filter, compile_regex
 from tgdl.models import ChannelRef, MediaKind, TaskSpec
 from tgdl.scanner import ChannelAccessError, extract_media, iter_kwargs, resolve_channel, scan
 
@@ -221,3 +221,43 @@ async def test_resolve_channel_id_persistent_value_error_raises_access_error() -
     with pytest.raises(ChannelAccessError, match="已加入该频道"):
         await resolve_channel(client, ChannelRef(channel_id=123))
     assert client.dialogs_calls == 1
+
+
+def test_iter_kwargs_single_message_uses_album_window() -> None:
+    spec = TaskSpec(link=ChannelRef(username="c", message_id=50), raw_link="x")
+    assert iter_kwargs(spec) == {"reverse": True, "min_id": 39, "max_id": 61}
+    assert iter_kwargs(TaskSpec(link=ChannelRef(username="c", message_id=3), raw_link="x"))["min_id"] == 0
+
+
+def test_iter_kwargs_open_ended_ids_starts_from_message() -> None:
+    spec = TaskSpec(link=ChannelRef(username="c", message_id=50), raw_link="x", id_from=50)
+    assert iter_kwargs(spec) == {"reverse": True, "min_id": 49, "max_id": 0}
+
+
+async def test_scan_single_message_link_downloads_only_that_message() -> None:
+    client = FakeClient(messages=(_msg(48, file=VIDEO), _msg(50, file=VIDEO), _msg(52, file=VIDEO)))
+    spec = TaskSpec(link=ChannelRef(username="c", message_id=50), raw_link="x")
+    items = await scan(client, object(), spec, build_filter(spec))
+    assert [i.message_id for i in items] == [50]
+
+
+async def test_scan_single_message_link_includes_whole_album() -> None:
+    client = FakeClient(
+        messages=(
+            _msg(48, file=VIDEO),
+            _msg(49, text="album", file=PHOTO, grouped_id=7),
+            _msg(50, file=PHOTO, grouped_id=7),
+            _msg(51, file=VIDEO, grouped_id=7),
+            _msg(52, file=VIDEO, grouped_id=8),
+        )
+    )
+    spec = TaskSpec(link=ChannelRef(username="c", message_id=50), raw_link="x")
+    items = await scan(client, object(), spec, build_filter(spec))
+    assert [i.message_id for i in items] == [49, 50, 51]
+    assert all(i.caption == "album" for i in items)
+
+
+async def test_scan_single_message_link_without_media_returns_empty() -> None:
+    client = FakeClient(messages=(_msg(50, text="just text"),))
+    spec = TaskSpec(link=ChannelRef(username="c", message_id=50), raw_link="x")
+    assert await scan(client, object(), spec, build_filter(spec)) == ()

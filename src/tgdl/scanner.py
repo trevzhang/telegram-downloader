@@ -23,6 +23,7 @@ from tgdl.models import ChannelRef, MediaItem, MediaKind, TaskSpec
 from tgdl.paths import sanitize_filename
 
 log = logging.getLogger(__name__)
+ALBUM_WINDOW = 10  # Telegram 相册最多 10 项
 
 
 class ChannelAccessError(RuntimeError):
@@ -113,11 +114,26 @@ def extract_media(message: Any) -> MediaItem | None:
     )
 
 
+def is_single_message(spec: TaskSpec) -> bool:
+    """链接带消息 ID 且没有任何范围条件：只下载这一条消息（及其所属相册）。"""
+    return (
+        spec.link.message_id is not None
+        and spec.id_from is None
+        and spec.id_to is None
+        and spec.date_from is None
+        and spec.date_to is None
+    )
+
+
 def iter_kwargs(spec: TaskSpec) -> dict[str, Any]:
     """把过滤范围下推到 Telethon iter_messages（min_id/max_id 为开区间）。"""
     if spec.id_from is not None:
         max_id = spec.id_to + 1 if spec.id_to is not None else 0
         return {"reverse": True, "min_id": spec.id_from - 1, "max_id": max_id}
+    if is_single_message(spec):
+        mid = spec.link.message_id or 0
+        # 相册最多 10 项且 ID 相邻，前后各扫 ALBUM_WINDOW 个足以覆盖整个相册
+        return {"reverse": True, "min_id": max(0, mid - ALBUM_WINDOW - 1), "max_id": mid + ALBUM_WINDOW + 1}
     kwargs: dict[str, Any] = {"reverse": True}
     if spec.date_from is not None:
         kwargs["offset_date"] = spec.date_from
@@ -133,6 +149,18 @@ def _propagate_album_captions(pairs: tuple[tuple[Any, MediaItem], ...]) -> tuple
     )
 
 
+def _select_single_message(
+    pairs: tuple[tuple[Any, MediaItem], ...], message_id: int
+) -> tuple[tuple[Any, MediaItem], ...]:
+    """只保留目标消息；若目标属于相册，则保留同一相册的全部媒体。"""
+    target = next((m for m, _ in pairs if m.id == message_id), None)
+    if target is None:
+        return ()
+    if not target.grouped_id:
+        return tuple((m, item) for m, item in pairs if m.id == message_id)
+    return tuple((m, item) for m, item in pairs if m.grouped_id == target.grouped_id)
+
+
 async def scan(client: Any, entity: Any, spec: TaskSpec, media_filter: MediaFilter) -> tuple[MediaItem, ...]:
     collected: list[tuple[Any, MediaItem]] = []
     async for message in client.iter_messages(entity, **iter_kwargs(spec)):
@@ -143,7 +171,10 @@ async def scan(client: Any, entity: Any, spec: TaskSpec, media_filter: MediaFilt
         item = extract_media(message)
         if item is not None:
             collected.append((message, item))
-    items = _propagate_album_captions(tuple(collected))
+    pairs = tuple(collected)
+    if is_single_message(spec):
+        pairs = _select_single_message(pairs, spec.link.message_id or 0)
+    items = _propagate_album_captions(pairs)
     matched = tuple(item for item in items if media_filter.matches(item))
     log.info("扫描完成: 共 %d 个媒体，匹配 %d 个", len(items), len(matched))
     return matched

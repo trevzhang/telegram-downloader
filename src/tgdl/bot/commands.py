@@ -14,11 +14,14 @@ from tgdl.models import MediaKind, TaskSpec
 HELP_TEXT = """📖 用法
 
 /dl <链接> [选项]
+  链接为频道链接时下载整个频道；为消息链接时只下载该条消息
+  （若属于相册则下载整个相册），加范围选项后按范围下载
   --regex <表达式>   按正则过滤（匹配消息文字或文件名，忽略大小写）
                     表达式以 - 开头时须写成 --regex=<表达式>
   --from <日期>      起始时间，如 2026-01-01 或 2026-01-01T12:00
   --to <日期>        结束时间（含当天）
   --ids <起始>-<结束> 消息序号范围，如 --ids 100-500（与 --from/--to 互斥）
+                    结束留空表示到最后一条，如 --ids 100-
   --type video|photo|all  媒体类型，默认 all
 
 /tasks            查看排队中和进行中的任务
@@ -27,8 +30,9 @@ HELP_TEXT = """📖 用法
 /help             显示本帮助
 
 示例：
+/dl https://t.me/somechannel/123               只下载第 123 条消息的媒体
 /dl https://t.me/somechannel --regex "4K" --from 2026-01-01 --to 2026-03-01
-/dl https://t.me/c/1234567890/50 --ids 50-200 --type video"""
+/dl https://t.me/c/1234567890/50 --ids 50- --type video   从第 50 条下载到最后"""
 
 
 class CommandError(ValueError):
@@ -52,7 +56,7 @@ def _build_dl_parser() -> _Parser:
 
 
 _DL_PARSER = _build_dl_parser()
-_IDS = re.compile(r"^([0-9]{1,10})-([0-9]{1,10})$")
+_IDS = re.compile(r"^([0-9]{1,10})-([0-9]{0,10})$")
 _TASK_ID = re.compile(r"#?([0-9]{1,10})")
 
 
@@ -79,8 +83,8 @@ def parse_ids(text: str | None) -> tuple[int | None, int | None]:
         return None, None
     match = _IDS.match(text.strip())
     if not match:
-        raise CommandError("--ids 格式应为 起始-结束，例如 --ids 100-500")
-    return int(match.group(1)), int(match.group(2))
+        raise CommandError("--ids 格式应为 起始-结束，例如 --ids 100-500；结束留空表示到最后一条")
+    return int(match.group(1)), int(match.group(2)) if match.group(2) else None
 
 
 def _parse_dl_args(args: list[str]) -> argparse.Namespace:
