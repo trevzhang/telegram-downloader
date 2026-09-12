@@ -61,7 +61,7 @@ async def test_channel_access_error_fails_gracefully(tmp_path: Path) -> None:
 
 async def test_current_snapshot_available_during_download(tmp_path: Path) -> None:
     notifier = FakeNotifier()
-    worker = _worker(_client(2, delay=0.01), tmp_path, notifier)
+    worker = _worker(_client(2, delay=0.05), tmp_path, notifier)
     assert worker.current_snapshot() is None
     task = asyncio.create_task(worker.run(_state(), lambda s: None))
     await asyncio.sleep(0.02)
@@ -71,18 +71,36 @@ async def test_current_snapshot_available_during_download(tmp_path: Path) -> Non
     assert worker.current_snapshot() is None
 
 
-async def test_cancel_sends_notice_and_reraises(tmp_path: Path) -> None:
+async def test_cancel_finalizes_overview_and_reraises(tmp_path: Path) -> None:
     notifier = FakeNotifier()
     worker = _worker(_client(2, delay=0.05), tmp_path, notifier)
     task = asyncio.create_task(worker.run(_state(), lambda s: None))
     await asyncio.sleep(0.03)
     task.cancel()
-    try:
+    with pytest.raises(asyncio.CancelledError):
         await task
-    except asyncio.CancelledError:
-        pass
-    assert any("已取消" in text for _, text in notifier.edits) or any("已取消" in t for t in notifier.sent)
+    overview_id = notifier.sent.index(next(t for t in notifier.sent if "开始下载" in t)) + 1
+    last_id, last_text = notifier.edits[-1]
+    assert last_id == overview_id and "已取消" in last_text and "共 2 个" in last_text
+    assert not any("已取消" in text for text in notifier.sent)
     assert not list(tmp_path.rglob("*.part"))
+
+
+async def test_cancel_before_overview_sends_notice(tmp_path: Path) -> None:
+    notifier = FakeNotifier()
+    client = _client(2)
+
+    async def slow_get_entity(ref: object) -> FakeEntity:
+        await asyncio.sleep(1)
+        return client.entity  # type: ignore[return-value]
+
+    client.get_entity = slow_get_entity  # type: ignore[method-assign]
+    task = asyncio.create_task(_worker(client, tmp_path, notifier).run(_state(), lambda s: None))
+    await asyncio.sleep(0.01)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert any("已取消" in text for text in notifier.sent) and notifier.edits == []
 
 
 async def test_unexpected_error_notifies_then_propagates(tmp_path: Path) -> None:
@@ -91,3 +109,30 @@ async def test_unexpected_error_notifies_then_propagates(tmp_path: Path) -> None
     with pytest.raises(RPCError):
         await _worker(client, tmp_path, notifier).run(_state(), lambda s: None)
     assert any("失败" in text and "boom" in text for text in notifier.sent)
+
+
+class _BrokenEditNotifier(FakeNotifier):
+    async def edit(self, message_id: int, text: str) -> None:
+        raise RPCError(request=None, message="gone")
+
+
+async def test_edit_failure_falls_back_to_send_and_keeps_result(tmp_path: Path) -> None:
+    notifier = _BrokenEditNotifier()
+    final = await _worker(_client(3), tmp_path, notifier).run(_state(), lambda s: None)
+    assert final.status is TaskStatus.DONE
+    assert [r.status for r in final.results] == [FileStatus.DONE] * 3
+    assert any("成功：3" in text for text in notifier.sent)
+
+
+async def test_download_error_finalizes_overview_and_propagates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def boom(*args: object, **kwargs: object) -> tuple:
+        raise RuntimeError("kaboom")
+
+    monkeypatch.setattr("tgdl.worker.download_all", boom)
+    notifier = FakeNotifier()
+    with pytest.raises(RuntimeError):
+        await _worker(_client(2), tmp_path, notifier).run(_state(), lambda s: None)
+    overview_id = notifier.sent.index(next(t for t in notifier.sent if "开始下载" in t)) + 1
+    last_id, last_text = notifier.edits[-1]
+    assert last_id == overview_id and "失败" in last_text and "kaboom" in last_text
+    assert not any("失败" in text for text in notifier.sent)
