@@ -7,6 +7,7 @@ dependencies = [
     "telethon>=1.45,<2",
     "python-socks[asyncio]>=2.4",
     "pydantic-settings>=2.6",
+    "regex>=2026.9.10",
 ]
 
 [project.scripts]

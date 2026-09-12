@@ -30,6 +30,10 @@ class FileStatus(str, Enum):
 
 ACTIVE_STATUSES = frozenset({TaskStatus.QUEUED, TaskStatus.SCANNING, TaskStatus.DOWNLOADING})
 
+# Telegram 消息序号为 32 位正整数
+MIN_MESSAGE_ID = 1
+MAX_MESSAGE_ID = 2**31 - 1
+
 
 @dataclass(frozen=True)
 class ChannelRef:

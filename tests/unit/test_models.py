@@ -5,7 +5,8 @@ from pathlib import Path
 import pytest
 
 from tgdl.models import (
-    ChannelRef, FileResult, FileStatus, MediaItem, MediaKind, TaskSpec, TaskState, TaskStatus,
+    MAX_MESSAGE_ID, MIN_MESSAGE_ID, ChannelRef, FileResult, FileStatus, MediaItem, MediaKind,
+    TaskSpec, TaskState, TaskStatus,
 )
 
 
@@ -73,3 +74,8 @@ def test_file_result_holds_item() -> None:
     result = FileResult(item=_item(), path=Path("a.jpg"), status=FileStatus.DONE)
     assert result.error is None
     assert result.item.message_id == 5
+
+
+def test_message_id_bounds() -> None:
+    assert MIN_MESSAGE_ID == 1
+    assert MAX_MESSAGE_ID == 2**31 - 1

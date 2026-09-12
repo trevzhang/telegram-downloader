@@ -77,3 +77,47 @@ def test_parse_dl_bad_type_choice() -> None:
 def test_parse_dl_option_missing_value() -> None:
     with pytest.raises(CommandError, match="--regex"):
         parse_dl(["https://t.me/chan", "--regex"])
+
+
+def test_split_command_keeps_unquoted_backslash() -> None:
+    assert split_command("/dl https://t.me/x --regex ep\\d+") == ("/dl", ["https://t.me/x", "--regex", "ep\\d+"])
+
+
+def test_split_command_unbalanced_quote() -> None:
+    with pytest.raises(CommandError, match="引号不匹配"):
+        split_command('/dl https://t.me/x --regex "abc')
+
+
+@pytest.mark.parametrize("arg", ["²", "##3"])
+def test_parse_cancel_rejects_non_ascii_or_double_hash(arg: str) -> None:
+    with pytest.raises(CommandError, match="用法"):
+        parse_cancel([arg])
+
+
+def test_parse_dl_ids_rejects_non_ascii_digits() -> None:
+    with pytest.raises(CommandError, match="--ids 格式"):
+        parse_dl(["https://t.me/chan", "--ids", "٣-٥"])
+
+
+@pytest.mark.parametrize("ids", ["0-5", "1-2147483648"])
+def test_parse_dl_ids_out_of_bounds(ids: str) -> None:
+    with pytest.raises(CommandError, match="1 到 2147483647"):
+        parse_dl(["https://t.me/chan", "--ids", ids])
+
+
+def test_parse_dl_ids_too_many_digits() -> None:
+    with pytest.raises(CommandError):
+        parse_dl(["https://t.me/chan", "--ids", "1-99999999999"])
+
+
+def test_parse_dl_rejects_abbreviated_option() -> None:
+    with pytest.raises(CommandError):
+        parse_dl(["https://t.me/chan", "--fr", "2026-01-01"])
+
+
+def test_parse_dl_empty_regex_is_none() -> None:
+    assert parse_dl(["https://t.me/chan", "--regex", ""]).regex is None
+
+
+def test_parse_dl_regex_starting_with_dash_via_equals() -> None:
+    assert parse_dl(["https://t.me/chan", "--regex=-x"]).regex == "-x"

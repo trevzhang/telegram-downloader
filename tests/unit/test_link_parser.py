@@ -23,7 +23,8 @@ def test_parse_valid_links(raw: str, expected: ChannelRef) -> None:
     assert parse_link(raw) == expected
 
 
-@pytest.mark.parametrize("raw", ["", "hello", "https://example.com/x", "https://t.me/", "https://t.me/ab"])
+@pytest.mark.parametrize("raw", ["", "hello", "https://example.com/x", "https://t.me/", "https://t.me/ab",
+                                 "t.me/chan/0", "t.me/chan/99999999999", "t.me/c/123/0"])
 def test_parse_invalid_links(raw: str) -> None:
     with pytest.raises(LinkParseError):
         parse_link(raw)

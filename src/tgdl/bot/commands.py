@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import re
 import shlex
+from typing import NoReturn
 
 from tgdl.filters import FilterError, parse_datetime, validate_spec
 from tgdl.link_parser import LinkParseError, parse_link
@@ -13,6 +14,7 @@ HELP_TEXT = """📖 用法
 
 /dl <链接> [选项]
   --regex <表达式>   按正则过滤（匹配消息文字或文件名，忽略大小写）
+                    表达式以 - 开头时须写成 --regex=<表达式>
   --from <日期>      起始时间，如 2026-01-01 或 2026-01-01T12:00
   --to <日期>        结束时间（含当天）
   --ids <起始>-<结束> 消息序号范围，如 --ids 100-500（与 --from/--to 互斥）
@@ -33,12 +35,12 @@ class CommandError(ValueError):
 
 
 class _Parser(argparse.ArgumentParser):
-    def error(self, message: str) -> None:  # type: ignore[override]
+    def error(self, message: str) -> NoReturn:
         raise CommandError(message)
 
 
 def _build_dl_parser() -> _Parser:
-    parser = _Parser(prog="/dl", add_help=False, exit_on_error=False)
+    parser = _Parser(prog="/dl", add_help=False, exit_on_error=False, allow_abbrev=False)
     parser.add_argument("link")
     parser.add_argument("--regex")
     parser.add_argument("--from", dest="date_from")
@@ -49,13 +51,18 @@ def _build_dl_parser() -> _Parser:
 
 
 _DL_PARSER = _build_dl_parser()
-_IDS = re.compile(r"^(\d+)-(\d+)$")
+_IDS = re.compile(r"^([0-9]{1,10})-([0-9]{1,10})$")
+_TASK_ID = re.compile(r"#?([0-9]{1,10})")
 
 
 def split_command(text: str) -> tuple[str, list[str]]:
     """返回 (命令名, 参数列表)。命令名统一小写并去掉 @botname 后缀。"""
+    # 不把反斜杠当转义符，保证 --regex ep\d+ 这类未加引号的正则原样保留
+    lexer = shlex.shlex(text.strip(), posix=True)
+    lexer.whitespace_split = True
+    lexer.escape = ""
     try:
-        tokens = shlex.split(text.strip())
+        tokens = list(lexer)
     except ValueError as exc:
         raise CommandError(f"参数引号不匹配: {exc}") from exc
     if not tokens or not tokens[0].startswith("/"):
@@ -88,7 +95,7 @@ def parse_dl(args: list[str]) -> TaskSpec:
         spec = TaskSpec(
             link=parse_link(ns.link),
             raw_link=ns.link,
-            regex=ns.regex,
+            regex=ns.regex or None,
             date_from=parse_datetime(ns.date_from) if ns.date_from else None,
             date_to=parse_datetime(ns.date_to, end_of_day=True) if ns.date_to else None,
             id_from=id_from,
@@ -102,6 +109,7 @@ def parse_dl(args: list[str]) -> TaskSpec:
 
 
 def parse_cancel(args: list[str]) -> int:
-    if len(args) != 1 or not args[0].lstrip("#").isdigit():
+    match = _TASK_ID.fullmatch(args[0]) if len(args) == 1 else None
+    if not match:
         raise CommandError("用法: /cancel <任务ID>")
-    return int(args[0].lstrip("#"))
+    return int(match.group(1))
