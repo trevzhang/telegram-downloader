@@ -395,7 +395,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from pydantic import Field, ValidationError
+from pydantic import Field, SecretStr, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROXY_TYPE_SOCKS5 = "socks5"
@@ -409,13 +409,13 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     api_id: int
-    api_hash: str
-    bot_token: str
+    api_hash: SecretStr
+    bot_token: SecretStr
     owner_id: int
     proxy_host: str | None = None
     proxy_port: int | None = Field(default=None, ge=1, le=65535)
     proxy_username: str | None = None
-    proxy_password: str | None = None
+    proxy_password: SecretStr | None = None
     download_dir: Path = Path("downloads")
     data_dir: Path = Path("data")
     concurrency: int = Field(default=3, ge=1, le=10)
@@ -433,7 +433,8 @@ class Settings(BaseSettings):
             "rdns": True,
         }
         if self.proxy_username:
-            return {**base, "username": self.proxy_username, "password": self.proxy_password or ""}
+            password = self.proxy_password.get_secret_value() if self.proxy_password else ""
+            return {**base, "username": self.proxy_username, "password": password}
         return base
 
 
@@ -2879,8 +2880,9 @@ def build_worker_config(settings: Settings) -> WorkerConfig:
 def build_clients(settings: Settings) -> tuple[TelegramClient, TelegramClient]:
     user_session, bot_session = session_paths(settings)
     proxy = settings.proxy()
-    user = TelegramClient(user_session, settings.api_id, settings.api_hash, proxy=proxy)
-    bot = TelegramClient(bot_session, settings.api_id, settings.api_hash, proxy=proxy)
+    api_hash = settings.api_hash.get_secret_value()
+    user = TelegramClient(user_session, settings.api_id, api_hash, proxy=proxy)
+    bot = TelegramClient(bot_session, settings.api_id, api_hash, proxy=proxy)
     return user, bot
 
 
@@ -2893,7 +2895,7 @@ async def main_async(settings: Settings) -> None:
 
     user, bot = build_clients(settings)
     await user.start()  # 首次运行会在终端交互输入手机号与验证码
-    await bot.start(bot_token=settings.bot_token)
+    await bot.start(bot_token=settings.bot_token.get_secret_value())
     log.info("用户与 Bot 客户端已登录，代理: %s", "已启用" if settings.proxy() else "直连")
 
     notifier = TelegramNotifier(bot, settings.owner_id)

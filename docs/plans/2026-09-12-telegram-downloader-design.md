@@ -56,13 +56,13 @@
 | 模块 | 职责 |
 |---|---|
 | `config.py` | 用 pydantic-settings 加载 `.env`，启动时校验必填项 |
-| `models.py` | `TaskSpec`、`MediaItem`、`TaskState`、`ProgressSnapshot` 等 frozen dataclass |
+| `models.py` | `TaskSpec`、`MediaItem`、`TaskState` 等 frozen dataclass |
 | `link_parser.py` | 解析 t.me 链接为 (频道标识, 可选消息 ID, 是否邀请链接) |
 | `filters.py` | 正则、时间范围、序号范围过滤器及互斥校验 |
 | `scanner.py` | 用 user_client 迭代消息，产出 `MediaItem` 列表 |
 | `downloader.py` | 信号量控制并发，下载单文件，写 .part 后原子重命名，重试 |
 | `task_queue.py` | 串行任务队列、状态机、取消标记 |
-| `progress.py` | 汇总字节数，滑动窗口速度，ETA，节流编辑 Bot 消息 |
+| `progress.py` | `ProgressSnapshot`/`ProgressTracker`：汇总字节数，滑动窗口速度，ETA，节流编辑 Bot 消息 |
 | `bot/commands.py` | 命令行参数解析（argparse 风格） |
 | `bot/handlers.py` | 命令处理与回复 |
 | `main.py` | 装配、登录、启动事件循环 |
