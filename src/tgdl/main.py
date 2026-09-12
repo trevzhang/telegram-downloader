@@ -13,6 +13,7 @@ from typing import Any
 from telethon import TelegramClient
 
 from tgdl.bot.handlers import BotHandlers
+from tgdl.bot.live import LiveMessages
 from tgdl.bot.notifier import Notifier, TelegramNotifier
 from tgdl.config import ConfigError, Settings, load_settings
 from tgdl.logging_setup import LOG_DIR_NAME, setup_logging
@@ -186,9 +187,14 @@ async def main_async(settings: Settings) -> None:
         notifier = TelegramNotifier(bot, settings.owner_id)
         worker = TaskWorker(user, notifier, build_worker_config(settings))
         queue = TaskQueue(worker.run)
-        BotHandlers(queue, worker.current_snapshot).register(bot, settings.owner_id)
+        live = LiveMessages(notifier, settings.progress_interval)
+        BotHandlers(queue, worker.current_snapshot, live).register(bot, settings.owner_id)
+        live_task = asyncio.create_task(live.run())
         await _send_startup_notice(notifier)
-        await _run_until_first_done(queue.run_forever(), bot.run_until_disconnected())
+        try:
+            await _run_until_first_done(queue.run_forever(), bot.run_until_disconnected())
+        finally:
+            await _cancel(live_task)
     finally:
         await disconnect_quietly(user, "用户")
         await disconnect_quietly(bot, "Bot")

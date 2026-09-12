@@ -6,8 +6,10 @@ from typing import Any
 
 import pytest
 
+from tests.fakes.telegram import FakeNotifier
 from tgdl.bot.commands import HELP_TEXT
-from tgdl.bot.handlers import BotHandlers
+from tgdl.bot.handlers import BotHandlers, Reply
+from tgdl.bot.live import LiveMessages
 from tgdl.models import ChannelRef, FileResult, FileStatus, MediaItem, MediaKind, TaskSpec, TaskStatus
 from tgdl.progress import ProgressTracker
 from tgdl.task_queue import TaskQueue
@@ -142,8 +144,11 @@ class _FakeEvent:
         self.raw_text = raw_text
         self.replies: list[tuple[str, object]] = []
 
-    async def reply(self, text: str, parse_mode: object = "unset") -> None:
+    sent_id = 77
+
+    async def reply(self, text: str, parse_mode: object = "unset") -> Any:
         self.replies.append((text, parse_mode))
+        return type("Sent", (), {"id": self.sent_id})()
 
 
 async def test_register_restricts_to_owner_private_chat_and_disables_markdown() -> None:
@@ -162,12 +167,58 @@ async def test_register_handler_reports_internal_error(monkeypatch: pytest.Monke
     client = _FakeBotClient()
     handlers.register(client, owner_id=42)
 
-    async def boom(text: str) -> str:
+    async def boom(text: str) -> Reply:
         raise RuntimeError("kaboom")
 
-    monkeypatch.setattr(handlers, "handle_text", boom)
+    monkeypatch.setattr(handlers, "handle", boom)
     event = _FakeEvent("/tasks")
     await client.handlers[0](event)
     assert len(event.replies) == 1
     text, parse_mode = event.replies[0]
     assert "内部错误" in text and parse_mode is None
+
+
+def _running_handlers(snapshot=None, live: LiveMessages | None = None) -> tuple[BotHandlers, _RunningQueue]:
+    queue = _RunningQueue(runner=None)  # type: ignore[arg-type]
+    queue.submit(TaskSpec(link=ChannelRef(username="chana"), raw_link="https://t.me/chana"))
+    return BotHandlers(queue, lambda: snapshot, live=live), queue
+
+
+async def test_status_reply_is_live_until_task_ends() -> None:
+    handlers, queue = _running_handlers()
+    reply = await handlers.handle("/status")
+    assert reply.live is not None and "正在扫描" in reply.text
+    text, done = reply.live()
+    assert "正在扫描" in text and done is False
+    queue._set(replace(queue.get(1), status=TaskStatus.DONE))  # noqa: SLF001
+    queue.current = lambda: None  # type: ignore[method-assign]
+    text, done = reply.live()
+    assert done is True and "完成" in text
+
+
+async def test_status_without_task_is_not_live() -> None:
+    handlers, _ = _handlers()
+    assert (await handlers.handle("/status")).live is None
+
+
+async def test_tasks_reply_is_live_until_queue_empty() -> None:
+    handlers, queue = _running_handlers()
+    reply = await handlers.handle("/tasks")
+    assert reply.live is not None and "#1" in reply.text
+    assert reply.live()[1] is False
+    queue._set(replace(queue.get(1), status=TaskStatus.DONE))  # noqa: SLF001
+    text, done = reply.live()
+    assert done is True and "没有任务" in text
+
+
+async def test_on_command_registers_live_reply_with_sent_message_id() -> None:
+    live = LiveMessages(FakeNotifier(), interval=0.01)  # type: ignore[arg-type]
+    handlers, _ = _running_handlers(live=live)
+    client = _FakeBotClient()
+    handlers.register(client, owner_id=42)
+    event = _FakeEvent("/status")
+    await client.handlers[0](event)
+    assert live.message_ids == (event.sent_id,)
+    event = _FakeEvent("/help")
+    await client.handlers[0](event)
+    assert live.count == 1

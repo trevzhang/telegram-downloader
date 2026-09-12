@@ -46,7 +46,7 @@ cp .env.example .env       # 复制配置模板
 | `DOWNLOAD_DIR` | 否 | 下载根目录，默认 `downloads`；指向 NAS 时用挂载后的路径，见[下载到 NAS](#下载到-nas) |
 | `DATA_DIR` | 否 | session、日志存放目录，默认 `data` |
 | `CONCURRENCY` | 否 | 任务内并发下载文件数（1-10），默认 3 |
-| `PROGRESS_INTERVAL` | 否 | 进度消息编辑间隔（秒，≥1），默认 5 |
+| `PROGRESS_INTERVAL` | 否 | 进度消息与 `/status`、`/tasks` 回复的自动刷新间隔（秒，≥1），默认 5 |
 | `MAX_RETRIES` | 否 | 单文件网络错误重试次数（0-10），默认 3 |
 
 配置只从环境变量或 `.env` 读取，源码中不含任何密钥；`.env`、`data/`、`downloads/` 已在 `.gitignore` 中。
@@ -108,6 +108,10 @@ uv run tgdl
 /dl https://t.me/somechannel --regex=-hidden       # 正则以 - 开头时必须用 = 连接
 /cancel 3                                          # 也可写作 /cancel #3
 ```
+
+### 实时刷新
+
+`/status` 和 `/tasks` 的回复不是一次性快照：程序会每 `PROGRESS_INTERVAL` 秒重新渲染并编辑这条回复，`/status` 在任务结束时会编辑成该任务的最终汇总后停止刷新，`/tasks` 在队列清空后编辑成「当前没有任务」后停止。同时刷新的回复最多保留最近 5 条，更早的停止更新，避免触发 Telegram 的编辑频率限制。
 
 ## 文件存放结构
 
