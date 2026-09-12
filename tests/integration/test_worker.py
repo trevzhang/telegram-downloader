@@ -167,3 +167,14 @@ async def test_flood_wait_over_cap_fails_task_with_clear_message(tmp_path: Path)
     assert final.status is TaskStatus.FAILED
     assert final.error is not None and "限流等待超过上限" in final.error
     assert sleep.calls == []
+
+
+async def test_missing_download_dir_fails_task_before_scanning(tmp_path: Path) -> None:
+    client = FakeClient(entity=FakeEntity(id=1, title="My Chan"))
+    notifier = FakeNotifier()
+    worker = _worker(client, tmp_path / "nas-not-mounted", notifier)
+    final = await worker.run(_state(), lambda s: None)
+    assert final.status == TaskStatus.FAILED
+    assert "下载目录不存在" in (final.error or "")
+    assert any("下载目录不存在" in text for text in notifier.sent)
+    assert not (tmp_path / "nas-not-mounted").exists()

@@ -1,6 +1,8 @@
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from tgdl.models import MediaItem, MediaKind
 from tgdl.paths import channel_dir_name, cleanup_parts, part_path, sanitize_filename, target_path
 
@@ -93,3 +95,12 @@ def test_target_path_sanitizes_file_name() -> None:
     assert ".." not in path.parts
     assert path.parent == Path("dl/chan/2026-03")
     assert path.name.startswith("42_") and path.name.endswith("evil.mp4")
+
+
+def test_ensure_download_root_rejects_missing_dir(tmp_path: Path) -> None:
+    from tgdl.paths import DownloadDirMissingError, ensure_download_root
+
+    ensure_download_root(tmp_path)
+    with pytest.raises(DownloadDirMissingError, match="NAS"):
+        ensure_download_root(tmp_path / "gone")
+    assert not (tmp_path / "gone").exists()

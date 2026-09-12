@@ -16,7 +16,7 @@ from tgdl.bot.notifier import Notifier
 from tgdl.downloader import FLOOD_ERRORS, FLOOD_WAIT_MARGIN_SECONDS, MAX_FLOOD_WAIT_TOTAL_SECONDS, download_all
 from tgdl.filters import FilterError, build_filter
 from tgdl.models import FileResult, TaskState, TaskStatus
-from tgdl.paths import channel_dir_name
+from tgdl.paths import DownloadDirMissingError, channel_dir_name, ensure_download_root
 from tgdl.progress import ProgressSnapshot, ProgressTracker, format_bytes, render_progress, render_summary
 from tgdl.reporter import ProgressReporter
 from tgdl.scanner import ChannelAccessError, resolve_channel, scan
@@ -104,7 +104,7 @@ class TaskWorker:
     async def run(self, state: TaskState, publish: Publish) -> TaskState:
         try:
             return await self._run(state, publish)
-        except (ChannelAccessError, FilterError) as exc:
+        except (ChannelAccessError, FilterError, DownloadDirMissingError) as exc:
             await self._notify(f"❌ 任务 #{state.task_id} 失败：{exc}")
             return replace(state, status=TaskStatus.FAILED, error=str(exc))
         except asyncio.CancelledError:
@@ -122,6 +122,7 @@ class TaskWorker:
 
     async def _run(self, state: TaskState, publish: Publish) -> TaskState:
         spec = state.spec
+        ensure_download_root(self._config.download_dir)
         await self._notify(f"🔍 任务 #{state.task_id} 开始扫描 {spec.raw_link}")
         entity = await self._retry_on_flood(state.task_id, lambda: resolve_channel(self._client, spec.link))
         state = replace(state, status=TaskStatus.SCANNING, channel_title=display_title(entity))

@@ -141,6 +141,8 @@ async def _run_until_first_done(queue_run: Awaitable[None], bot_run: Awaitable[N
 async def main_async(settings: Settings) -> None:
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     setup_logging(settings.data_dir / LOG_DIR_NAME)
+    if not settings.download_dir.is_dir():
+        log.warning("下载目录当前不存在，任务会失败直到它可用（NAS 未挂载？）：%s", settings.download_dir)
     removed = cleanup_parts(settings.download_dir)
     if removed:
         log.info("清理残留 .part 文件 %d 个", removed)
