@@ -314,6 +314,8 @@ git commit -m "feat: 添加不可变领域模型"
 
 ### Task 2: 配置加载 config.py
 
+> 注：本任务代码在审查后已加固（env_ignore_empty、代理 host/port 必须成对、错误信息含原因、SecretStr、ChannelRef 互斥校验）。以仓库中 `src/tgdl/config.py`、`src/tgdl/models.py` 与对应测试为准，本节代码块为初版。
+
 **Files:**
 - Create: `src/tgdl/config.py`
 - Test: `tests/unit/test_config.py`
