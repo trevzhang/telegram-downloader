@@ -2625,7 +2625,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 
 from tgdl.bot.handlers import BotHandlers
-from tgdl.models import MediaItem, MediaKind, TaskStatus
+from tgdl.models import ChannelRef, MediaItem, MediaKind, TaskSpec, TaskStatus
 from tgdl.progress import ProgressTracker
 from tgdl.task_queue import TaskQueue
 
@@ -2651,8 +2651,7 @@ async def test_dl_error_returns_usage_hint() -> None:
 async def test_tasks_empty_and_listed() -> None:
     handlers, queue = _handlers()
     assert "没有任务" in await handlers.handle_text("/tasks")
-    queue.submit(queue.submit.__self__ and __import__("tgdl.models").models.TaskSpec(  # noqa
-        link=__import__("tgdl.models").models.ChannelRef(username="c"), raw_link="https://t.me/c"))
+    queue.submit(TaskSpec(link=ChannelRef(username="c"), raw_link="https://t.me/c"))
     reply = await handlers.handle_text("/tasks")
     assert "#1" in reply and "排队中" in reply
 
@@ -2683,8 +2682,6 @@ async def test_help_and_unknown() -> None:
     assert "用法" in await handlers.handle_text("/start")
     assert "未知命令" in await handlers.handle_text("/wat")
 ```
-
-把 `test_tasks_empty_and_listed` 里那行别扭的 `__import__` 改成顶部正常导入 `from tgdl.models import ChannelRef, TaskSpec` 后写成 `queue.submit(TaskSpec(link=ChannelRef(username="c"), raw_link="https://t.me/c"))`。
 
 **Step 2: 运行确认失败**
 
