@@ -1,8 +1,10 @@
 """Bot 命令分发：只处理 OWNER 在私聊中发来的以 / 开头的消息。"""
+
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from telethon import events
 

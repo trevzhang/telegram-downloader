@@ -1,17 +1,19 @@
 """串行任务队列：状态存储、取消、异常兜底。"""
+
 from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable, Coroutine
 from dataclasses import replace
-from typing import Awaitable, Callable
+from typing import Any
 
 from tgdl.models import ACTIVE_STATUSES, TaskSpec, TaskState, TaskStatus
 
 log = logging.getLogger(__name__)
 
 Publish = Callable[[TaskState], None]
-Runner = Callable[[TaskState, Publish], Awaitable[TaskState]]
+Runner = Callable[[TaskState, Publish], Coroutine[Any, Any, TaskState]]
 
 
 class TaskQueue:

@@ -2,13 +2,15 @@
 
 通知（send/edit）只是尽力而为：任何发送失败都只记录警告，绝不改变任务结果。
 """
+
 from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Awaitable, Callable, TypeVar
+from typing import Any, TypeVar
 
 from tgdl.bot.notifier import Notifier
 from tgdl.downloader import FLOOD_ERRORS, FLOOD_WAIT_MARGIN_SECONDS, MAX_FLOOD_WAIT_TOTAL_SECONDS, download_all
@@ -86,8 +88,9 @@ def display_title(entity: Any) -> str:
 
 
 class TaskWorker:
-    def __init__(self, user_client: Any, notifier: Notifier, config: WorkerConfig, *,
-                 sleep: SleepFn = asyncio.sleep) -> None:
+    def __init__(
+        self, user_client: Any, notifier: Notifier, config: WorkerConfig, *, sleep: SleepFn = asyncio.sleep
+    ) -> None:
         self._client = user_client
         self._notifier = notifier
         self._config = config
@@ -149,7 +152,10 @@ class TaskWorker:
         return await _with_flood_retry(coro_factory, notify, self._sleep)
 
     async def _download_with_progress(
-        self, state: TaskState, entity: Any, message_id: int | None,
+        self,
+        state: TaskState,
+        entity: Any,
+        message_id: int | None,
     ) -> tuple[FileResult, ...]:
         tracker = _CollectingTracker(state.task_id, state.channel_title, state.items)
         self._tracker = tracker
@@ -158,8 +164,14 @@ class TaskWorker:
         report_task = asyncio.create_task(reporter.run(lambda: render_progress(tracker.snapshot), stop))
         try:
             return await download_all(
-                self._client, entity, state.items, self._config.download_dir, channel_dir_name(entity),
-                tracker, concurrency=self._config.concurrency, max_retries=self._config.max_retries,
+                self._client,
+                entity,
+                state.items,
+                self._config.download_dir,
+                channel_dir_name(entity),
+                tracker,
+                concurrency=self._config.concurrency,
+                max_retries=self._config.max_retries,
             )
         finally:
             stop.set()

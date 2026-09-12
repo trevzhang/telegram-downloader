@@ -1,10 +1,12 @@
 """配置加载：仅从环境变量或 .env 读取，启动时校验必填项。"""
+
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
 
 from pydantic import Field, SecretStr, ValidationError, model_validator
+from pydantic_core import ErrorDetails
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROXY_TYPE_SOCKS5 = "socks5"
@@ -17,7 +19,10 @@ class ConfigError(RuntimeError):
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", env_ignore_empty=True, extra="ignore",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        env_ignore_empty=True,
+        extra="ignore",
     )
 
     api_id: int
@@ -56,14 +61,14 @@ class Settings(BaseSettings):
         return base
 
 
-def _format_error(err: dict[str, Any]) -> str:
+def _format_error(err: ErrorDetails) -> str:
     loc = ".".join(str(part) for part in err["loc"]) or MODEL_LEVEL_LOC
     return f"{loc}: {err['msg']}"
 
 
 def load_settings(env_file: str | Path | None = ".env") -> Settings:
     try:
-        return Settings(_env_file=env_file)
+        return Settings(_env_file=env_file)  # type: ignore[call-arg]  # pydantic-settings 的运行时参数未进入签名
     except ValidationError as exc:
         details = ", ".join(_format_error(err) for err in exc.errors())
         raise ConfigError(f"配置无效或缺失: {details}") from exc

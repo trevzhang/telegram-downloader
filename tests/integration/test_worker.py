@@ -1,22 +1,23 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 from telethon.errors import ChannelPrivateError, FloodWaitError, RPCError
 
+from tests.fakes.telegram import FakeClient, FakeEntity, FakeFile, FakeMessage, FakeNotifier
 from tgdl.models import ChannelRef, FileStatus, TaskSpec, TaskState, TaskStatus
 from tgdl.worker import TaskWorker, WorkerConfig
-from tests.fakes.telegram import FakeClient, FakeEntity, FakeFile, FakeMessage, FakeNotifier
 
-T0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+T0 = datetime(2026, 1, 1, tzinfo=UTC)
 VIDEO = FakeFile(name="v.mp4", size=8, mime_type="video/mp4", ext=".mp4")
 
 
 def _client(n: int = 2, **kw: object) -> FakeClient:
     return FakeClient(
         messages=tuple(FakeMessage(id=i, date=T0, message=f"ep{i}", file=VIDEO) for i in range(1, n + 1)),
-        entity=FakeEntity(id=1, title="My Chan", username="mychan"), **kw,  # type: ignore[arg-type]
+        entity=FakeEntity(id=1, title="My Chan", username="mychan"),
+        **kw,  # type: ignore[arg-type]
     )
 
 
@@ -124,7 +125,9 @@ async def test_edit_failure_falls_back_to_send_and_keeps_result(tmp_path: Path) 
     assert any("成功：3" in text for text in notifier.sent)
 
 
-async def test_download_error_finalizes_overview_and_propagates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_download_error_finalizes_overview_and_propagates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     async def boom(*args: object, **kwargs: object) -> tuple:
         raise RuntimeError("kaboom")
 

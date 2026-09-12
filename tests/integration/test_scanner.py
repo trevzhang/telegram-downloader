@@ -1,20 +1,23 @@
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from telethon.errors import (
-    ChannelPrivateError, InviteHashExpiredError, InviteRequestSentError,
-    UserAlreadyParticipantError, UsernameNotOccupiedError,
+    ChannelPrivateError,
+    InviteHashExpiredError,
+    InviteRequestSentError,
+    UserAlreadyParticipantError,
+    UsernameNotOccupiedError,
 )
 from telethon.tl.functions.messages import CheckChatInviteRequest, ImportChatInviteRequest
 from telethon.tl.types import PeerChannel
 
+from tests.fakes.telegram import FakeClient, FakeEntity, FakeFile, FakeMessage
 from tgdl.filters import MediaFilter, compile_regex
 from tgdl.models import ChannelRef, MediaKind, TaskSpec
 from tgdl.scanner import ChannelAccessError, extract_media, iter_kwargs, resolve_channel, scan
-from tests.fakes.telegram import FakeClient, FakeEntity, FakeFile, FakeMessage
 
-UTC = timezone.utc
+UTC = UTC
 T0 = datetime(2026, 1, 1, tzinfo=UTC)
 
 
@@ -65,11 +68,13 @@ def test_iter_kwargs_date_and_start_message() -> None:
 
 
 async def test_scan_applies_date_to_and_regex() -> None:
-    client = FakeClient(messages=(
-        _msg(1, days=0, text="EP01", file=VIDEO),
-        _msg(2, days=1, text="EP02", file=VIDEO),
-        _msg(3, days=5, text="EP03", file=VIDEO),
-    ))
+    client = FakeClient(
+        messages=(
+            _msg(1, days=0, text="EP01", file=VIDEO),
+            _msg(2, days=1, text="EP02", file=VIDEO),
+            _msg(3, days=5, text="EP03", file=VIDEO),
+        )
+    )
     spec = _spec(date_from=T0 - timedelta(days=1), date_to=T0 + timedelta(days=2))
     items = await scan(client, object(), spec, MediaFilter(pattern=compile_regex("ep0[12]")))
     assert [i.message_id for i in items] == [1, 2]
@@ -82,11 +87,13 @@ async def test_scan_ids_range() -> None:
 
 
 async def test_scan_propagates_album_caption() -> None:
-    client = FakeClient(messages=(
-        _msg(1, text="Album 4K", file=PHOTO, grouped_id=77),
-        _msg(2, text="", file=PHOTO, grouped_id=77),
-        _msg(3, text="", file=PHOTO),
-    ))
+    client = FakeClient(
+        messages=(
+            _msg(1, text="Album 4K", file=PHOTO, grouped_id=77),
+            _msg(2, text="", file=PHOTO, grouped_id=77),
+            _msg(3, text="", file=PHOTO),
+        )
+    )
     items = await scan(client, object(), _spec(), MediaFilter(pattern=compile_regex("4k")))
     assert [i.message_id for i in items] == [1, 2]
     assert items[1].caption == "Album 4K"
@@ -112,12 +119,14 @@ def test_extract_ignores_link_preview() -> None:
 
 async def test_scan_enforces_date_from_locally_when_message_link_disables_offset_date() -> None:
     """带消息 ID 的链接会让 Telethon 忽略 offset_date，本地必须补上闭区间下界。"""
-    client = FakeClient(messages=(
-        _msg(1, days=0, file=VIDEO),
-        _msg(2, days=1, file=VIDEO),
-        _msg(3, days=2, file=VIDEO),
-        _msg(4, days=2, file=VIDEO),
-    ))
+    client = FakeClient(
+        messages=(
+            _msg(1, days=0, file=VIDEO),
+            _msg(2, days=1, file=VIDEO),
+            _msg(3, days=2, file=VIDEO),
+            _msg(4, days=2, file=VIDEO),
+        )
+    )
     spec = TaskSpec(link=ChannelRef(username="c", message_id=2), raw_link="x", date_from=T0 + timedelta(days=2))
     items = await scan(client, object(), spec, MediaFilter())
     assert [i.message_id for i in items] == [3, 4]
@@ -156,18 +165,22 @@ async def test_resolve_invite_without_chats_raises() -> None:
 
 async def test_resolve_invite_already_participant_uses_check() -> None:
     entity = FakeEntity(id=5)
-    client = FakeClient(request_results={
-        ImportChatInviteRequest: UserAlreadyParticipantError(request=None),
-        CheckChatInviteRequest: _InviteInfo(chat=entity),
-    })
+    client = FakeClient(
+        request_results={
+            ImportChatInviteRequest: UserAlreadyParticipantError(request=None),
+            CheckChatInviteRequest: _InviteInfo(chat=entity),
+        }
+    )
     assert await resolve_channel(client, INVITE) is entity
 
 
 async def test_resolve_invite_check_without_chat_raises() -> None:
-    client = FakeClient(request_results={
-        ImportChatInviteRequest: UserAlreadyParticipantError(request=None),
-        CheckChatInviteRequest: _InviteInfo(),
-    })
+    client = FakeClient(
+        request_results={
+            ImportChatInviteRequest: UserAlreadyParticipantError(request=None),
+            CheckChatInviteRequest: _InviteInfo(),
+        }
+    )
     with pytest.raises(ChannelAccessError, match="无法获取"):
         await resolve_channel(client, INVITE)
 

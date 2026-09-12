@@ -1,17 +1,24 @@
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from tgdl.models import ChannelRef, FileResult, FileStatus, MediaItem, MediaKind, TaskSpec, TaskState, TaskStatus
 from tgdl.progress import (
-    ProgressTracker, SpeedWindow, eta_seconds, format_bytes, format_duration,
-    render_bar, render_progress, render_summary,
+    ProgressTracker,
+    SpeedWindow,
+    eta_seconds,
+    format_bytes,
+    format_duration,
+    render_bar,
+    render_progress,
+    render_summary,
 )
 
 
 def _item(mid: int, size: int = 100, name: str = "f.mp4") -> MediaItem:
-    return MediaItem(message_id=mid, date=datetime(2026, 1, 1, tzinfo=timezone.utc),
-                     kind=MediaKind.VIDEO, file_name=name, size=size)
+    return MediaItem(
+        message_id=mid, date=datetime(2026, 1, 1, tzinfo=UTC), kind=MediaKind.VIDEO, file_name=name, size=size
+    )
 
 
 class _Clock:
@@ -106,7 +113,9 @@ def test_render_summary_lists_failures() -> None:
         FileResult(item=_item(1), path=Path("a"), status=FileStatus.DONE),
         FileResult(item=_item(2, name="bad.mp4"), path=Path("b"), status=FileStatus.FAILED, error="timeout"),
     )
-    state = TaskState(task_id=1, spec=spec, status=TaskStatus.DONE, channel_title="@c", items=(_item(1), _item(2)), results=results)
+    state = TaskState(
+        task_id=1, spec=spec, status=TaskStatus.DONE, channel_title="@c", items=(_item(1), _item(2)), results=results
+    )
     text = render_summary(state)
     assert "成功：1" in text and "失败：1" in text
     assert "bad.mp4" in text and "timeout" in text
@@ -170,8 +179,15 @@ def test_render_summary_never_exceeds_telegram_limit() -> None:
     spec = TaskSpec(link=ChannelRef(username="c"), raw_link="x")
     items = tuple(_item(i, name="视" * 120) for i in range(20))
     results = tuple(FileResult(item=it, path=Path("p"), status=FileStatus.FAILED, error="错" * 300) for it in items)
-    state = TaskState(task_id=1, spec=spec, status=TaskStatus.FAILED, channel_title="@c",
-                      items=items, results=results, error="炸" * 300)
+    state = TaskState(
+        task_id=1,
+        spec=spec,
+        status=TaskStatus.FAILED,
+        channel_title="@c",
+        items=items,
+        results=results,
+        error="炸" * 300,
+    )
     text = render_summary(state)
     assert len(text) <= 4096
     assert "错" * 121 not in text and "炸" * 121 not in text

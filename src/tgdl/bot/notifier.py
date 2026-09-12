@@ -1,4 +1,5 @@
 """通过 Bot 客户端向 OWNER 发送与编辑消息。"""
+
 from __future__ import annotations
 
 from typing import Any, Protocol

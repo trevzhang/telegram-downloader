@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from tgdl.models import MediaItem, MediaKind
@@ -44,8 +44,9 @@ def test_channel_dir_name_prefers_username_then_title_then_id() -> None:
 
 
 def test_target_path_layout() -> None:
-    item = MediaItem(message_id=42, date=datetime(2026, 3, 5, tzinfo=timezone.utc),
-                     kind=MediaKind.VIDEO, file_name="v.mp4", size=1)
+    item = MediaItem(
+        message_id=42, date=datetime(2026, 3, 5, tzinfo=UTC), kind=MediaKind.VIDEO, file_name="v.mp4", size=1
+    )
     assert target_path(Path("dl"), "chan", item) == Path("dl/chan/2026-03/42_v.mp4")
 
 
@@ -85,8 +86,9 @@ def test_sanitize_replaces_delete_char() -> None:
 
 
 def test_target_path_sanitizes_file_name() -> None:
-    item = MediaItem(message_id=42, date=datetime(2026, 3, 5, tzinfo=timezone.utc),
-                     kind=MediaKind.VIDEO, file_name="../evil.mp4", size=1)
+    item = MediaItem(
+        message_id=42, date=datetime(2026, 3, 5, tzinfo=UTC), kind=MediaKind.VIDEO, file_name="../evil.mp4", size=1
+    )
     path = target_path(Path("dl"), "chan", item)
     assert ".." not in path.parts
     assert path.parent == Path("dl/chan/2026-03")

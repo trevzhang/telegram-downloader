@@ -1,11 +1,13 @@
 """装配所有组件并启动：用户客户端登录、Bot 客户端登录、队列循环。"""
+
 from __future__ import annotations
 
 import asyncio
 import contextlib
 import logging
 import sys
-from typing import Any, Awaitable
+from collections.abc import Awaitable
+from typing import Any
 
 from telethon import TelegramClient
 
@@ -34,8 +36,10 @@ def session_paths(settings: Settings) -> tuple[str, str]:
 
 def build_worker_config(settings: Settings) -> WorkerConfig:
     return WorkerConfig(
-        download_dir=settings.download_dir, concurrency=settings.concurrency,
-        max_retries=settings.max_retries, progress_interval=settings.progress_interval,
+        download_dir=settings.download_dir,
+        concurrency=settings.concurrency,
+        max_retries=settings.max_retries,
+        progress_interval=settings.progress_interval,
     )
 
 
@@ -43,8 +47,13 @@ def build_user_client(settings: Settings) -> TelegramClient:
     """用户客户端关闭 Telethon 自动限流等待，让 FloodWait 直接抛出以便显示限流提示。"""
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     user_session, _ = session_paths(settings)
-    return TelegramClient(user_session, settings.api_id, settings.api_hash.get_secret_value(),
-                          proxy=settings.proxy(), flood_sleep_threshold=0)
+    return TelegramClient(
+        user_session,
+        settings.api_id,
+        settings.api_hash.get_secret_value(),
+        proxy=settings.proxy(),
+        flood_sleep_threshold=0,
+    )
 
 
 def build_bot_client(settings: Settings) -> TelegramClient:

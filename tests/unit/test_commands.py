@@ -25,7 +25,9 @@ def test_parse_dl_minimal() -> None:
 
 
 def test_parse_dl_full_date_range() -> None:
-    spec = parse_dl(["https://t.me/chan", "--regex", "4k", "--from", "2026-01-01", "--to", "2026-02-01", "--type", "video"])
+    spec = parse_dl(
+        ["https://t.me/chan", "--regex", "4k", "--from", "2026-01-01", "--to", "2026-02-01", "--type", "video"]
+    )
     assert spec.regex == "4k"
     assert spec.date_from is not None and spec.date_to is not None
     assert spec.date_from < spec.date_to

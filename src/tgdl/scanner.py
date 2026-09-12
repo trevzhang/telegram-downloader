@@ -1,4 +1,5 @@
 """解析频道实体并扫描消息，产出待下载的 MediaItem 列表。"""
+
 from __future__ import annotations
 
 import logging
@@ -6,8 +7,13 @@ from dataclasses import replace
 from typing import Any
 
 from telethon.errors import (
-    ChannelPrivateError, InviteHashExpiredError, InviteHashInvalidError, InviteRequestSentError,
-    UserAlreadyParticipantError, UsernameInvalidError, UsernameNotOccupiedError,
+    ChannelPrivateError,
+    InviteHashExpiredError,
+    InviteHashInvalidError,
+    InviteRequestSentError,
+    UserAlreadyParticipantError,
+    UsernameInvalidError,
+    UsernameNotOccupiedError,
 )
 from telethon.tl.functions.messages import CheckChatInviteRequest, ImportChatInviteRequest
 from telethon.tl.types import PeerChannel
@@ -36,7 +42,7 @@ def _chat_from_join_result(result: Any) -> Any:
 
 
 async def _chat_from_invite_check(client: Any, invite_hash: str) -> Any:
-    """已是成员时用 CheckChatInviteRequest 取频道；返回 ChatInviteAlready/ChatInvitePeek 才有 .chat，ChatInvite 没有。"""
+    """已是成员时用 CheckChatInviteRequest 取频道；ChatInviteAlready/ChatInvitePeek 有 .chat，ChatInvite 没有。"""
     chat = getattr(await client(CheckChatInviteRequest(invite_hash)), "chat", None)
     if chat is None:
         raise ChannelAccessError("无法获取邀请链接对应的频道")
@@ -98,8 +104,12 @@ def extract_media(message: Any) -> MediaItem | None:
         return None
     name = file.name or f"{kind.value}{file.ext or ''}"
     return MediaItem(
-        message_id=message.id, date=message.date, kind=kind,
-        file_name=sanitize_filename(name), size=file.size or 0, caption=message.message or "",
+        message_id=message.id,
+        date=message.date,
+        kind=kind,
+        file_name=sanitize_filename(name),
+        size=file.size or 0,
+        caption=message.message or "",
     )
 
 
@@ -119,8 +129,7 @@ def iter_kwargs(spec: TaskSpec) -> dict[str, Any]:
 def _propagate_album_captions(pairs: tuple[tuple[Any, MediaItem], ...]) -> tuple[MediaItem, ...]:
     captions = {m.grouped_id: item.caption for m, item in pairs if m.grouped_id and item.caption}
     return tuple(
-        replace(item, caption=captions.get(m.grouped_id, item.caption)) if m.grouped_id else item
-        for m, item in pairs
+        replace(item, caption=captions.get(m.grouped_id, item.caption)) if m.grouped_id else item for m, item in pairs
     )
 
 

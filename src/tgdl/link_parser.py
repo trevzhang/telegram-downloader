@@ -1,4 +1,5 @@
 """解析 Telegram 复制链接为 ChannelRef。"""
+
 from __future__ import annotations
 
 import re

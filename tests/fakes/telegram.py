@@ -1,10 +1,12 @@
 """Telethon 客户端与消息的测试替身。"""
+
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, AsyncIterator
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -75,17 +77,19 @@ class FakeClient:
             raise result
         return result
 
-    async def iter_messages(self, entity: Any, reverse: bool = False, min_id: int = 0,
-                            max_id: int = 0, offset_date: datetime | None = None) -> AsyncIterator[FakeMessage]:
+    async def iter_messages(
+        self, entity: Any, reverse: bool = False, min_id: int = 0, max_id: int = 0, offset_date: datetime | None = None
+    ) -> AsyncIterator[FakeMessage]:
         # 与 Telethon 一致：reverse 时 min_id 充当 offset_id，优先级高于 offset_date（后者被忽略）
         date_floor = None if min_id else offset_date
         selected = [
-            m for m in self.messages
+            m
+            for m in self.messages
             if (min_id == 0 or m.id > min_id)
             and (max_id == 0 or m.id < max_id)
             and (date_floor is None or m.date > date_floor)
         ]
-        for message in (selected if reverse else reversed(selected)):
+        for message in selected if reverse else reversed(selected):
             yield message
 
     async def get_messages(self, entity: Any, ids: int) -> FakeMessage | None:
@@ -103,7 +107,7 @@ class FakeClient:
             with open(file, "wb") as handle:
                 for start in range(0, len(data), self.chunk):
                     await asyncio.sleep(self.delay)
-                    handle.write(data[start:start + self.chunk])
+                    handle.write(data[start : start + self.chunk])
                     if progress_callback:
                         progress_callback(min(start + self.chunk, len(data)), len(data))
             return file

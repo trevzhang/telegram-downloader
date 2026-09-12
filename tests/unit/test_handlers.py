@@ -1,7 +1,8 @@
+from collections.abc import Callable
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import pytest
 
@@ -52,7 +53,9 @@ async def test_status_without_task() -> None:
 
 
 async def test_status_renders_snapshot() -> None:
-    item = MediaItem(message_id=1, date=datetime(2026, 1, 1, tzinfo=timezone.utc), kind=MediaKind.VIDEO, file_name="a.mp4", size=10)
+    item = MediaItem(
+        message_id=1, date=datetime(2026, 1, 1, tzinfo=UTC), kind=MediaKind.VIDEO, file_name="a.mp4", size=10
+    )
     tracker = ProgressTracker(task_id=7, channel_title="@c", items=(item,))
     handlers, _ = _handlers(tracker.snapshot)
     assert "任务 #7" in await handlers.handle_text("/status")
@@ -66,8 +69,13 @@ async def test_help_and_unknown() -> None:
 
 
 def _item(message_id: int = 1) -> MediaItem:
-    return MediaItem(message_id=message_id, date=datetime(2026, 1, 1, tzinfo=timezone.utc),
-                     kind=MediaKind.VIDEO, file_name=f"{message_id}.mp4", size=10)
+    return MediaItem(
+        message_id=message_id,
+        date=datetime(2026, 1, 1, tzinfo=UTC),
+        kind=MediaKind.VIDEO,
+        file_name=f"{message_id}.mp4",
+        size=10,
+    )
 
 
 class _RunningQueue(TaskQueue):

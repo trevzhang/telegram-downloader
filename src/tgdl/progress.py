@@ -1,10 +1,11 @@
 """进度聚合：滑动窗口速度、ETA、文本渲染。快照不可变，Tracker 只替换引用。"""
+
 from __future__ import annotations
 
 import math
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, replace
-from typing import Callable
 
 from tgdl.models import FileResult, FileStatus, MediaItem, TaskState, TaskStatus
 
@@ -139,13 +140,22 @@ def _unexpired(flood_wait_until: float | None, now: float) -> float | None:
 class ProgressTracker:
     """持有最新的不可变快照；每次更新生成新快照替换引用。"""
 
-    def __init__(self, task_id: int, channel_title: str, items: tuple[MediaItem, ...],
-                 clock: Callable[[], float] = time.monotonic) -> None:
+    def __init__(
+        self,
+        task_id: int,
+        channel_title: str,
+        items: tuple[MediaItem, ...],
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
         self._clock = clock
         self._window = SpeedWindow()
         self._snap = ProgressSnapshot(
-            task_id=task_id, channel_title=channel_title, status=TaskStatus.DOWNLOADING,
-            total_files=len(items), total_bytes=sum(i.size for i in items), now=clock(),
+            task_id=task_id,
+            channel_title=channel_title,
+            status=TaskStatus.DOWNLOADING,
+            total_files=len(items),
+            total_bytes=sum(i.size for i in items),
+            now=clock(),
         )
 
     @property
@@ -159,7 +169,8 @@ class ProgressTracker:
         others = tuple(f for f in self._snap.active if f.message_id != message_id)
         entry = FileProgress(message_id=message_id, name=name, current=current, total=total)
         self._snap = replace(
-            self._snap, active=others + (entry,),
+            self._snap,
+            active=others + (entry,),
             transferred=self._snap.transferred + max(0, current - previous),
         )
         self._tick()
@@ -169,7 +180,9 @@ class ProgressTracker:
         field = _COUNTER_FIELD[result.status]
         gained = result.item.size if result.status is not FileStatus.FAILED else 0
         self._snap = replace(
-            self._snap, active=others, finished_bytes=self._snap.finished_bytes + gained,
+            self._snap,
+            active=others,
+            finished_bytes=self._snap.finished_bytes + gained,
             **{field: getattr(self._snap, field) + 1},
         )
         self._tick()
@@ -182,8 +195,12 @@ class ProgressTracker:
         """采样实际传输字节数（单调不减），并清理已过期的限流提示。"""
         now = self._clock()
         self._window = self._window.add(now, self._snap.transferred)
-        self._snap = replace(self._snap, speed=self._window.speed(), now=now,
-                             flood_wait_until=_unexpired(self._snap.flood_wait_until, now))
+        self._snap = replace(
+            self._snap,
+            speed=self._window.speed(),
+            now=now,
+            flood_wait_until=_unexpired(self._snap.flood_wait_until, now),
+        )
 
 
 def render_progress(snap: ProgressSnapshot) -> str:

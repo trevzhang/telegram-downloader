@@ -1,7 +1,7 @@
 import logging
 import time as time_module
 from collections.abc import Iterator
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from time import perf_counter
 
 import pytest
@@ -9,7 +9,7 @@ import pytest
 from tgdl.filters import FilterError, MediaFilter, build_filter, compile_regex, parse_datetime, validate_spec
 from tgdl.models import ChannelRef, MediaItem, MediaKind, TaskSpec
 
-UTC = timezone.utc
+UTC = UTC
 
 
 def _spec(**kwargs: object) -> TaskSpec:
@@ -17,8 +17,9 @@ def _spec(**kwargs: object) -> TaskSpec:
 
 
 def _item(kind: MediaKind = MediaKind.VIDEO, name: str = "a.mp4", caption: str = "") -> MediaItem:
-    return MediaItem(message_id=1, date=datetime(2026, 1, 1, tzinfo=UTC), kind=kind,
-                     file_name=name, size=1, caption=caption)
+    return MediaItem(
+        message_id=1, date=datetime(2026, 1, 1, tzinfo=UTC), kind=kind, file_name=name, size=1, caption=caption
+    )
 
 
 def test_parse_date_only_is_utc_aware() -> None:

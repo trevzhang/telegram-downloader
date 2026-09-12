@@ -1,10 +1,11 @@
 """过滤器：正则、时间范围、序号范围，以及 TaskSpec 的互斥校验。"""
+
 from __future__ import annotations
 
 import logging
 import re
 from dataclasses import dataclass
-from datetime import datetime, time, timezone
+from datetime import UTC, datetime, time
 
 import regex
 
@@ -37,7 +38,7 @@ def parse_datetime(text: str, *, end_of_day: bool = False) -> datetime:
         value = datetime.combine(value.date(), time.max)
     if value.tzinfo is None:
         value = value.astimezone()
-    return value.astimezone(timezone.utc)
+    return value.astimezone(UTC)
 
 
 def compile_regex(text: str) -> regex.Pattern[str]:

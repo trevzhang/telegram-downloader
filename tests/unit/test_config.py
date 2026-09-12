@@ -43,7 +43,10 @@ def test_proxy_socks5_dict(env: pytest.MonkeyPatch) -> None:
     env.setenv("PROXY_HOST", "127.0.0.1")
     env.setenv("PROXY_PORT", "7890")
     assert load_settings(env_file=None).proxy() == {
-        "proxy_type": "socks5", "addr": "127.0.0.1", "port": 7890, "rdns": True,
+        "proxy_type": "socks5",
+        "addr": "127.0.0.1",
+        "port": 7890,
+        "rdns": True,
     }
 
 

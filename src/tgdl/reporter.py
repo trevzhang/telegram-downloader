@@ -1,9 +1,10 @@
 """按固定间隔把进度文本写回同一条 Bot 消息，去重并容忍编辑失败。"""
+
 from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Awaitable, Callable
+from collections.abc import Awaitable, Callable
 
 from telethon.errors import MessageNotModifiedError
 
@@ -45,6 +46,6 @@ class ProgressReporter:
             await self.update(render())
             try:
                 await asyncio.wait_for(stop.wait(), timeout=self._interval)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 continue
         await self.update(render())

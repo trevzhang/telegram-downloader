@@ -1,4 +1,5 @@
 """Bot 命令文本解析：把 /dl ... 转成 TaskSpec，不涉及网络。"""
+
 from __future__ import annotations
 
 import argparse

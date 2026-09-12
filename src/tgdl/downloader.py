@@ -1,11 +1,13 @@
 """单文件下载（跳过/重试/限流/取消清理）与任务级并发下载。"""
+
 from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from telethon.errors import (
     BadRequestError,
@@ -71,8 +73,13 @@ def _log_final_failure(exc: Exception, item: MediaItem) -> None:
         log.exception("下载 %s 时遇到未预期异常", item.file_name)
 
 
-async def _wait_flood(exc: FloodWaitError | FloodPremiumWaitError, attempt: _Attempt, item: MediaItem,
-                      on_flood_wait: FloodWaitFn, sleep: SleepFn) -> _Attempt | None:
+async def _wait_flood(
+    exc: FloodWaitError | FloodPremiumWaitError,
+    attempt: _Attempt,
+    item: MediaItem,
+    on_flood_wait: FloodWaitFn,
+    sleep: SleepFn,
+) -> _Attempt | None:
     """执行限流等待；累计超过上限时返回 None。"""
     waited = attempt.flood_waited + exc.seconds
     if waited > MAX_FLOOD_WAIT_TOTAL_SECONDS:
@@ -92,9 +99,15 @@ async def _download_once(client: Any, entity: Any, item: MediaItem, part: Path, 
 
 
 async def download_item(
-    client: Any, entity: Any, item: MediaItem, path: Path, *,
-    on_progress: ProgressFn, on_flood_wait: FloodWaitFn,
-    max_retries: int = 3, sleep: SleepFn = asyncio.sleep,
+    client: Any,
+    entity: Any,
+    item: MediaItem,
+    path: Path,
+    *,
+    on_progress: ProgressFn,
+    on_flood_wait: FloodWaitFn,
+    max_retries: int = 3,
+    sleep: SleepFn = asyncio.sleep,
 ) -> FileResult:
     if _is_complete(path, item):
         return FileResult(item=item, path=path, status=FileStatus.SKIPPED)
@@ -128,17 +141,28 @@ async def download_item(
 
 
 async def download_all(
-    client: Any, entity: Any, items: tuple[MediaItem, ...], root: Path, channel_dir: str,
-    tracker: ProgressTracker, *, concurrency: int, max_retries: int,
+    client: Any,
+    entity: Any,
+    items: tuple[MediaItem, ...],
+    root: Path,
+    channel_dir: str,
+    tracker: ProgressTracker,
+    *,
+    concurrency: int,
+    max_retries: int,
 ) -> tuple[FileResult, ...]:
     semaphore = asyncio.Semaphore(concurrency)
 
     async def one(item: MediaItem) -> FileResult:
         async with semaphore:
             result = await download_item(
-                client, entity, item, target_path(root, channel_dir, item),
+                client,
+                entity,
+                item,
+                target_path(root, channel_dir, item),
                 on_progress=lambda cur, total: tracker.on_file_progress(item.message_id, item.file_name, cur, total),
-                on_flood_wait=tracker.on_flood_wait, max_retries=max_retries,
+                on_flood_wait=tracker.on_flood_wait,
+                max_retries=max_retries,
             )
             tracker.on_file_done(result)
             return result

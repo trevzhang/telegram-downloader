@@ -1,16 +1,16 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 from telethon.errors import FileIdInvalidError, FileReferenceExpiredError, FloodPremiumWaitError, FloodWaitError
 
+from tests.fakes.telegram import FakeClient, FakeFile, FakeMessage
 from tgdl.downloader import download_all, download_item
 from tgdl.models import FileStatus, MediaItem, MediaKind
 from tgdl.progress import ProgressTracker
-from tests.fakes.telegram import FakeClient, FakeFile, FakeMessage
 
-T0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+T0 = datetime(2026, 1, 1, tzinfo=UTC)
 # 非会员账号在 upload.getFile 上会收到 FloodPremiumWaitError，语义与 FloodWaitError 相同
 FLOOD_ERRORS = (FloodWaitError, FloodPremiumWaitError)
 
@@ -30,8 +30,14 @@ async def test_downloads_and_renames_part(tmp_path: Path) -> None:
     msg, item = _pair(1)
     client = FakeClient(messages=(msg,))
     progress: list[tuple[int, int]] = []
-    result = await download_item(client, object(), item, tmp_path / "a" / "1_v1.mp4",
-                                 on_progress=lambda c, t: progress.append((c, t)), on_flood_wait=lambda s: None)
+    result = await download_item(
+        client,
+        object(),
+        item,
+        tmp_path / "a" / "1_v1.mp4",
+        on_progress=lambda c, t: progress.append((c, t)),
+        on_flood_wait=lambda s: None,
+    )
     assert result.status is FileStatus.DONE
     assert (tmp_path / "a" / "1_v1.mp4").stat().st_size == 16
     assert not list(tmp_path.rglob("*.part"))
@@ -43,7 +49,9 @@ async def test_skips_existing_file_with_same_size(tmp_path: Path) -> None:
     target = tmp_path / "1_v1.mp4"
     target.write_bytes(b"x" * 16)
     client = FakeClient(messages=(msg,))
-    result = await download_item(client, object(), item, target, on_progress=lambda c, t: None, on_flood_wait=lambda s: None)
+    result = await download_item(
+        client, object(), item, target, on_progress=lambda c, t: None, on_flood_wait=lambda s: None
+    )
     assert result.status is FileStatus.SKIPPED
     assert client.download_calls == []
 
@@ -51,8 +59,16 @@ async def test_skips_existing_file_with_same_size(tmp_path: Path) -> None:
 async def test_retries_then_succeeds(tmp_path: Path) -> None:
     msg, item = _pair(1)
     client = FakeClient(messages=(msg,), failures=[OSError("net"), OSError("net")])
-    result = await download_item(client, object(), item, tmp_path / "1.mp4", on_progress=lambda c, t: None,
-                                 on_flood_wait=lambda s: None, max_retries=3, sleep=_noop_sleep)
+    result = await download_item(
+        client,
+        object(),
+        item,
+        tmp_path / "1.mp4",
+        on_progress=lambda c, t: None,
+        on_flood_wait=lambda s: None,
+        max_retries=3,
+        sleep=_noop_sleep,
+    )
     assert result.status is FileStatus.DONE
     assert len(client.download_calls) == 3
 
@@ -60,8 +76,16 @@ async def test_retries_then_succeeds(tmp_path: Path) -> None:
 async def test_retries_exhausted_marks_failed_and_removes_part(tmp_path: Path) -> None:
     msg, item = _pair(1)
     client = FakeClient(messages=(msg,), failures=[OSError("net")] * 5)
-    result = await download_item(client, object(), item, tmp_path / "1.mp4", on_progress=lambda c, t: None,
-                                 on_flood_wait=lambda s: None, max_retries=2, sleep=_noop_sleep)
+    result = await download_item(
+        client,
+        object(),
+        item,
+        tmp_path / "1.mp4",
+        on_progress=lambda c, t: None,
+        on_flood_wait=lambda s: None,
+        max_retries=2,
+        sleep=_noop_sleep,
+    )
     assert result.status is FileStatus.FAILED
     assert result.error is not None and "net" in result.error
     assert len(client.download_calls) == 3
@@ -78,8 +102,16 @@ async def test_flood_wait_reports_and_retries_without_consuming_attempts(tmp_pat
     async def sleep(seconds: float) -> None:
         slept.append(seconds)
 
-    result = await download_item(client, object(), item, tmp_path / "1.mp4", on_progress=lambda c, t: None,
-                                 on_flood_wait=waits.append, max_retries=0, sleep=sleep)
+    result = await download_item(
+        client,
+        object(),
+        item,
+        tmp_path / "1.mp4",
+        on_progress=lambda c, t: None,
+        on_flood_wait=waits.append,
+        max_retries=0,
+        sleep=sleep,
+    )
     assert result.status is FileStatus.DONE
     assert waits == [7] and slept and slept[0] >= 7
 
@@ -87,16 +119,27 @@ async def test_flood_wait_reports_and_retries_without_consuming_attempts(tmp_pat
 async def test_missing_message_fails_without_retry(tmp_path: Path) -> None:
     _, item = _pair(99)
     client = FakeClient(messages=())
-    result = await download_item(client, object(), item, tmp_path / "99.mp4", on_progress=lambda c, t: None,
-                                 on_flood_wait=lambda s: None, max_retries=3, sleep=_noop_sleep)
+    result = await download_item(
+        client,
+        object(),
+        item,
+        tmp_path / "99.mp4",
+        on_progress=lambda c, t: None,
+        on_flood_wait=lambda s: None,
+        max_retries=3,
+        sleep=_noop_sleep,
+    )
     assert result.status is FileStatus.FAILED and client.download_calls == []
 
 
 async def test_cancel_removes_part(tmp_path: Path) -> None:
     msg, item = _pair(1, size=64)
     client = FakeClient(messages=(msg,), delay=0.01)
-    task = asyncio.create_task(download_item(client, object(), item, tmp_path / "1.mp4",
-                                             on_progress=lambda c, t: None, on_flood_wait=lambda s: None))
+    task = asyncio.create_task(
+        download_item(
+            client, object(), item, tmp_path / "1.mp4", on_progress=lambda c, t: None, on_flood_wait=lambda s: None
+        )
+    )
     await asyncio.sleep(0.03)
     task.cancel()
     try:
@@ -133,8 +176,16 @@ async def test_unknown_exception_fails_without_retry_and_siblings_continue(tmp_p
 async def test_expired_file_reference_is_retried(tmp_path: Path) -> None:
     msg, item = _pair(1)
     client = FakeClient(messages=(msg,), failures=[FileReferenceExpiredError(request=None)])
-    result = await download_item(client, object(), item, tmp_path / "1.mp4", on_progress=lambda c, t: None,
-                                 on_flood_wait=lambda s: None, max_retries=3, sleep=_noop_sleep)
+    result = await download_item(
+        client,
+        object(),
+        item,
+        tmp_path / "1.mp4",
+        on_progress=lambda c, t: None,
+        on_flood_wait=lambda s: None,
+        max_retries=3,
+        sleep=_noop_sleep,
+    )
     assert result.status is FileStatus.DONE
     assert len(client.download_calls) == 2
 
@@ -142,8 +193,16 @@ async def test_expired_file_reference_is_retried(tmp_path: Path) -> None:
 async def test_permanent_bad_request_fails_immediately(tmp_path: Path) -> None:
     msg, item = _pair(1)
     client = FakeClient(messages=(msg,), failures=[FileIdInvalidError(request=None)])
-    result = await download_item(client, object(), item, tmp_path / "1.mp4", on_progress=lambda c, t: None,
-                                 on_flood_wait=lambda s: None, max_retries=3, sleep=_noop_sleep)
+    result = await download_item(
+        client,
+        object(),
+        item,
+        tmp_path / "1.mp4",
+        on_progress=lambda c, t: None,
+        on_flood_wait=lambda s: None,
+        max_retries=3,
+        sleep=_noop_sleep,
+    )
     assert result.status is FileStatus.FAILED
     assert result.error is not None and "FileIdInvalidError" in result.error
     assert len(client.download_calls) == 1
@@ -159,8 +218,16 @@ async def test_flood_wait_beyond_cap_fails_without_sleeping(tmp_path: Path, erro
     async def sleep(seconds: float) -> None:
         slept.append(seconds)
 
-    result = await download_item(client, object(), item, tmp_path / "1.mp4", on_progress=lambda c, t: None,
-                                 on_flood_wait=lambda s: None, max_retries=0, sleep=sleep)
+    result = await download_item(
+        client,
+        object(),
+        item,
+        tmp_path / "1.mp4",
+        on_progress=lambda c, t: None,
+        on_flood_wait=lambda s: None,
+        max_retries=0,
+        sleep=sleep,
+    )
     assert result.status is FileStatus.FAILED
     assert result.error is not None and "限流等待超过上限" in result.error
     assert all(s < 4000 for s in slept)

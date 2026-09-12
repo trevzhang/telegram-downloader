@@ -18,6 +18,7 @@ async def _runner_factory(log: list[int], delay: float = 0.0, fail_on: int | Non
             raise RuntimeError("boom")
         log.append(state.task_id)
         return replace(state, status=TaskStatus.DONE)
+
     return runner
 
 

@@ -1,19 +1,20 @@
 """领域模型：全部为不可变 dataclass，更新一律用 dataclasses.replace。"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 
 
-class MediaKind(str, Enum):
+class MediaKind(StrEnum):
     VIDEO = "video"
     PHOTO = "photo"
     ALL = "all"
 
 
-class TaskStatus(str, Enum):
+class TaskStatus(StrEnum):
     QUEUED = "queued"
     SCANNING = "scanning"
     DOWNLOADING = "downloading"
@@ -22,7 +23,7 @@ class TaskStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
-class FileStatus(str, Enum):
+class FileStatus(StrEnum):
     DONE = "done"
     SKIPPED = "skipped"
     FAILED = "failed"

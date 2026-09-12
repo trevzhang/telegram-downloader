@@ -9,14 +9,29 @@ import pytest
 
 from tgdl.config import ConfigError, Settings
 from tgdl.main import (
-    BOT_SESSION_NAME, USER_SESSION_NAME, _run_until_first_done, bot_id_from_token, build_clients,
-    build_worker_config, session_paths, start_clients,
+    BOT_SESSION_NAME,
+    USER_SESSION_NAME,
+    _run_until_first_done,
+    bot_id_from_token,
+    build_clients,
+    build_worker_config,
+    session_paths,
+    start_clients,
 )
 
 
 def _settings(tmp_path: Path, **kw: object) -> Settings:
-    return Settings(_env_file=None, api_id=1, api_hash="h", bot_token="42:secret", owner_id=1,
-                    data_dir=tmp_path / "data", download_dir=tmp_path / "dl", concurrency=4, **kw)  # type: ignore[arg-type]
+    return Settings(
+        _env_file=None,
+        api_id=1,
+        api_hash="h",
+        bot_token="42:secret",
+        owner_id=1,
+        data_dir=tmp_path / "data",
+        download_dir=tmp_path / "dl",
+        concurrency=4,
+        **kw,
+    )  # type: ignore[arg-type]
 
 
 def test_session_paths_under_data_dir(tmp_path: Path) -> None:
@@ -37,7 +52,8 @@ class _RecordingClient:
 
 
 def test_build_clients_passes_proxy_and_flood_threshold_only_to_user(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("tgdl.main.TelegramClient", _RecordingClient)
     settings = _settings(tmp_path, proxy_host="127.0.0.1", proxy_port=7890)
