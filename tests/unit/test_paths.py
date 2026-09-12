@@ -18,6 +18,19 @@ def test_sanitize_strips_dots_and_spaces() -> None:
     assert sanitize_filename("  ..name.. ") == "name"
 
 
+def test_sanitize_empty_becomes_file() -> None:
+    assert sanitize_filename("///") == "file"
+
+
+def test_sanitize_only_invalid_chars_and_dots_becomes_file() -> None:
+    assert sanitize_filename("/ . /") == "file"
+
+
+def test_sanitize_keeps_literal_underscores() -> None:
+    assert sanitize_filename("___") == "___"
+    assert sanitize_filename("_private.mp4") == "_private.mp4"
+
+
 def test_sanitize_truncates_long_name_keeping_ext() -> None:
     name = sanitize_filename("x" * 300 + ".mp4")
     assert name.endswith(".mp4")

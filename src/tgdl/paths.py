@@ -13,10 +13,15 @@ PART_SUFFIX = ".part"
 DEFAULT_NAME = "file"
 
 
+def _has_valid_chars(name: str) -> bool:
+    """去掉非法字符及首尾的空格/点后是否还有内容。"""
+    return bool(_INVALID_CHARS.sub("", name).strip(" ."))
+
+
 def sanitize_filename(name: str) -> str:
-    cleaned = _INVALID_CHARS.sub("_", name).strip(" .")
-    if not cleaned:
+    if not _has_valid_chars(name):
         return DEFAULT_NAME
+    cleaned = _INVALID_CHARS.sub("_", name).strip(" .")
     if len(cleaned) <= MAX_NAME_LENGTH:
         return cleaned
     stem, dot, ext = cleaned.rpartition(".")
