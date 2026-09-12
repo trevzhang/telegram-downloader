@@ -11,13 +11,14 @@ import sys
 
 from tgdl.bot.commands import CommandError, parse_dl
 from tgdl.config import ConfigError, load_settings
-from tgdl.main import build_clients, build_worker_config
+from tgdl.main import build_user_client, build_worker_config
 from tgdl.models import TaskSpec, TaskState
 from tgdl.worker import TaskWorker
 
 USAGE = "用法: uv run python scripts/e2e_smoke.py <链接> [--ids 起始-结束] [--regex ...] [--type video|photo|all]"
 EXIT_USAGE = 2
 EXIT_CONFIG = 1
+EXIT_INTERRUPTED = 130
 
 
 class PrintNotifier:
@@ -31,7 +32,7 @@ class PrintNotifier:
 
 async def run_task(spec: TaskSpec) -> None:
     settings = load_settings()
-    user, _ = build_clients(settings)
+    user = build_user_client(settings)  # 只登录用户账号，不产生 bot.session 副作用
     await user.start()
     try:
         worker = TaskWorker(user, PrintNotifier(), build_worker_config(settings))
@@ -54,6 +55,9 @@ def main(args: list[str]) -> int:
     except ConfigError as exc:
         print(f"启动失败: {exc}\n请参考 .env.example 创建 .env", file=sys.stderr)
         return EXIT_CONFIG
+    except KeyboardInterrupt:
+        print("已中断", file=sys.stderr)
+        return EXIT_INTERRUPTED
     return 0
 
 
