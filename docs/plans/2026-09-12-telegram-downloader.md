@@ -2396,11 +2396,11 @@ class TelegramNotifier:
         self._owner_id = owner_id
 
     async def send(self, text: str) -> int:
-        message = await self._bot.send_message(self._owner_id, text)
+        message = await self._bot.send_message(self._owner_id, text, parse_mode=None)
         return int(message.id)
 
     async def edit(self, message_id: int, text: str) -> None:
-        await self._bot.edit_message(self._owner_id, message_id, text)
+        await self._bot.edit_message(self._owner_id, message_id, text, parse_mode=None)
 ```
 
 **Step 2: 写失败测试**
