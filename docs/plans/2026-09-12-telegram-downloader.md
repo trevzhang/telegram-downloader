@@ -2376,6 +2376,8 @@ git commit -m "feat: 添加串行任务队列与取消支持"
 
 ### Task 12: 任务执行器 worker.py 与通知器 bot/notifier.py
 
+> 注：本任务代码在审查后已加固（通知发送/编辑失败只记录警告绝不改变任务结果、编辑概览消息失败时改为重新发送、取消与未预期异常时把概览消息改写为含已完成文件的汇总而非留下过期进度、概览消息发送前取消仍单独发送取消通知、`display_title` 对无 `id` 的实体安全降级）。以仓库中 `src/tgdl/worker.py` 与对应测试为准，本节代码块为初版。
+
 **Files:**
 - Create: `src/tgdl/bot/notifier.py`
 - Create: `src/tgdl/worker.py`
@@ -2622,6 +2624,8 @@ git commit -m "feat: 添加任务执行器与 Bot 通知器"
 ---
 
 ### Task 13: Bot 命令处理 bot/handlers.py
+
+> 注：本任务代码在审查后已加固（`event.reply` 关闭 Markdown 解析、事件处理器兜底捕获异常并回复“内部错误”、`chats=owner_id` 仅响应 OWNER 私聊、`/tasks` 对正在执行的任务显示实时快照的 已完成/总数 且不再依赖 `state.results`、`/status` 在扫描阶段提示正在扫描、`/dl` 回复改为“前面还有 N 个任务”）。以仓库中 `src/tgdl/bot/handlers.py` 与对应测试为准，本节代码块为初版。
 
 **Files:**
 - Create: `src/tgdl/bot/handlers.py`
