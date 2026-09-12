@@ -17,7 +17,6 @@ from tgdl.filters import MediaFilter, compile_regex
 from tgdl.models import ChannelRef, MediaKind, TaskSpec
 from tgdl.scanner import ChannelAccessError, extract_media, iter_kwargs, resolve_channel, scan
 
-UTC = UTC
 T0 = datetime(2026, 1, 1, tzinfo=UTC)
 
 

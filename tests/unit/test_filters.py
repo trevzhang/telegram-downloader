@@ -9,8 +9,6 @@ import pytest
 from tgdl.filters import FilterError, MediaFilter, build_filter, compile_regex, parse_datetime, validate_spec
 from tgdl.models import ChannelRef, MediaItem, MediaKind, TaskSpec
 
-UTC = UTC
-
 
 def _spec(**kwargs: object) -> TaskSpec:
     return TaskSpec(link=ChannelRef(username="c"), raw_link="https://t.me/c", **kwargs)  # type: ignore[arg-type]

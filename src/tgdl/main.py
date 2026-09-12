@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import sys
 from collections.abc import Awaitable
@@ -95,9 +94,14 @@ async def _send_startup_notice(notifier: Notifier) -> None:
 
 
 async def _cancel(task: asyncio.Task[Any]) -> None:
+    """取消并等待任务结束；关停阶段的次要异常只记录，不掩盖主异常。"""
     task.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
+    try:
         await task
+    except asyncio.CancelledError:
+        pass
+    except Exception as exc:
+        log.warning("关停任务时出现异常，已忽略：%s", exc)
 
 
 async def _run_until_first_done(queue_run: Awaitable[None], bot_run: Awaitable[None]) -> None:

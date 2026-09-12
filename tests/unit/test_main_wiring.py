@@ -141,10 +141,33 @@ async def test_run_until_first_done_reraises_queue_error_and_cancels_bot() -> No
 
 
 async def test_run_until_first_done_returns_when_bot_disconnects() -> None:
+    cancelled = False
+
     async def queue_forever() -> None:
-        await asyncio.sleep(10)
+        nonlocal cancelled
+        try:
+            await asyncio.sleep(10)
+        except asyncio.CancelledError:
+            cancelled = True
+            raise
 
     async def bot_done() -> None:
         return None
 
     await _run_until_first_done(queue_forever(), bot_done())
+    assert cancelled
+
+
+async def test_run_until_first_done_logs_secondary_error_and_reraises_primary(caplog) -> None:
+    async def queue_fails() -> None:
+        raise RuntimeError("queue boom")
+
+    async def bot_breaks_on_cancel() -> None:
+        try:
+            await asyncio.sleep(10)
+        except asyncio.CancelledError:
+            raise ConnectionError("bot unwind") from None
+
+    with caplog.at_level("WARNING"), pytest.raises(RuntimeError, match="queue boom"):
+        await _run_until_first_done(queue_fails(), bot_breaks_on_cancel())
+    assert "关停任务时出现异常" in caplog.text
