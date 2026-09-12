@@ -7,7 +7,13 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
-from telethon.errors import BadRequestError, FileReferenceExpiredError, FloodWaitError, RPCError
+from telethon.errors import (
+    BadRequestError,
+    FileReferenceExpiredError,
+    FloodPremiumWaitError,
+    FloodWaitError,
+    RPCError,
+)
 
 from tgdl.models import FileResult, FileStatus, MediaItem
 from tgdl.paths import part_path, target_path
@@ -22,6 +28,8 @@ FLOOD_WAIT_CAP_ERROR = "限流等待超过上限"
 # BadRequest 一般是永久性错误（文件 ID 无效等），仅文件引用过期可通过重新取消息修复
 RETRYABLE_BAD_REQUESTS: tuple[type[BadRequestError], ...] = (FileReferenceExpiredError,)
 TRANSIENT_ERRORS: tuple[type[Exception], ...] = (OSError, RPCError)
+# 非会员账号在 upload.getFile 上会收到 FloodPremiumWaitError，它不是 FloodWaitError 的子类但同样带 .seconds
+FLOOD_ERRORS: tuple[type[RPCError], ...] = (FloodWaitError, FloodPremiumWaitError)
 
 ProgressFn = Callable[[int, int], None]
 FloodWaitFn = Callable[[int], None]
@@ -63,7 +71,7 @@ def _log_final_failure(exc: Exception, item: MediaItem) -> None:
         log.exception("下载 %s 时遇到未预期异常", item.file_name)
 
 
-async def _wait_flood(exc: FloodWaitError, attempt: _Attempt, item: MediaItem,
+async def _wait_flood(exc: FloodWaitError | FloodPremiumWaitError, attempt: _Attempt, item: MediaItem,
                       on_flood_wait: FloodWaitFn, sleep: SleepFn) -> _Attempt | None:
     """执行限流等待；累计超过上限时返回 None。"""
     waited = attempt.flood_waited + exc.seconds
@@ -101,7 +109,7 @@ async def download_item(
         except asyncio.CancelledError:
             part.unlink(missing_ok=True)
             raise
-        except FloodWaitError as exc:
+        except FLOOD_ERRORS as exc:
             part.unlink(missing_ok=True)
             next_attempt = await _wait_flood(exc, attempt, item, on_flood_wait, sleep)
             if next_attempt is None:

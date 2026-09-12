@@ -2,7 +2,8 @@ import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 
-from telethon.errors import FileIdInvalidError, FileReferenceExpiredError, FloodWaitError
+import pytest
+from telethon.errors import FileIdInvalidError, FileReferenceExpiredError, FloodPremiumWaitError, FloodWaitError
 
 from tgdl.downloader import download_all, download_item
 from tgdl.models import FileStatus, MediaItem, MediaKind
@@ -10,6 +11,8 @@ from tgdl.progress import ProgressTracker
 from tests.fakes.telegram import FakeClient, FakeFile, FakeMessage
 
 T0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+# 非会员账号在 upload.getFile 上会收到 FloodPremiumWaitError，语义与 FloodWaitError 相同
+FLOOD_ERRORS = (FloodWaitError, FloodPremiumWaitError)
 
 
 def _pair(mid: int, size: int = 16) -> tuple[FakeMessage, MediaItem]:
@@ -65,9 +68,10 @@ async def test_retries_exhausted_marks_failed_and_removes_part(tmp_path: Path) -
     assert not list(tmp_path.rglob("*.part"))
 
 
-async def test_flood_wait_reports_and_retries_without_consuming_attempts(tmp_path: Path) -> None:
+@pytest.mark.parametrize("error_cls", FLOOD_ERRORS)
+async def test_flood_wait_reports_and_retries_without_consuming_attempts(tmp_path: Path, error_cls: type) -> None:
     msg, item = _pair(1)
-    client = FakeClient(messages=(msg,), failures=[FloodWaitError(request=None, capture=7)])
+    client = FakeClient(messages=(msg,), failures=[error_cls(request=None, capture=7)])
     waits: list[int] = []
     slept: list[float] = []
 
@@ -146,9 +150,10 @@ async def test_permanent_bad_request_fails_immediately(tmp_path: Path) -> None:
     assert not list(tmp_path.rglob("*.part"))
 
 
-async def test_flood_wait_beyond_cap_fails_without_sleeping(tmp_path: Path) -> None:
+@pytest.mark.parametrize("error_cls", FLOOD_ERRORS)
+async def test_flood_wait_beyond_cap_fails_without_sleeping(tmp_path: Path, error_cls: type) -> None:
     msg, item = _pair(1)
-    client = FakeClient(messages=(msg,), failures=[FloodWaitError(request=None, capture=4000)])
+    client = FakeClient(messages=(msg,), failures=[error_cls(request=None, capture=4000)])
     slept: list[float] = []
 
     async def sleep(seconds: float) -> None:
