@@ -1566,6 +1566,8 @@ git commit -m "feat: 添加节流进度上报器"
 
 ### Task 9: 测试替身与扫描器 scanner.py
 
+> 注：本任务代码在审查后已加固（ImportChatInviteRequest 返回 ChatInviteJoinResultOk/WebView 需从 `.updates.chats` 取频道且为空时报错、CheckChatInviteRequest 结果可能无 `.chat`、InviteRequestSentError 映射为待审批提示、链接预览 `web_preview` 不视为媒体、`date_from` 在本地强制为闭区间下界、FakeClient 支持 `__call__` 按请求类型返回结果）。以仓库中 `src/tgdl/scanner.py`、`tests/fakes/telegram.py` 与对应测试为准，本节代码块为初版。
+
 **Files:**
 - Create: `tests/fakes/telegram.py`
 - Create: `src/tgdl/scanner.py`
@@ -1911,6 +1913,8 @@ git commit -m "feat: 添加频道解析与消息扫描器"
 ---
 
 ### Task 10: 下载器 downloader.py
+
+> 注：本任务代码在审查后已加固（未知异常不逃出 `download_item` 而记为 FAILED、BadRequestError 视为永久错误不重试但 FileReferenceExpiredError 仍可重试、单文件累计限流等待上限 MAX_FLOOD_WAIT_TOTAL_SECONDS、限流分支同样清理 `.part`）。以仓库中 `src/tgdl/downloader.py` 与对应测试为准，本节代码块为初版。
 
 **Files:**
 - Create: `src/tgdl/downloader.py`
@@ -2885,7 +2889,8 @@ def build_clients(settings: Settings) -> tuple[TelegramClient, TelegramClient]:
     user_session, bot_session = session_paths(settings)
     proxy = settings.proxy()
     api_hash = settings.api_hash.get_secret_value()
-    user = TelegramClient(user_session, settings.api_id, api_hash, proxy=proxy)
+    user = TelegramClient(user_session, settings.api_id, api_hash, proxy=proxy,
+                          flood_sleep_threshold=0)  # 让 FloodWait 直接抛出以便显示限流提示
     bot = TelegramClient(bot_session, settings.api_id, api_hash, proxy=proxy)
     return user, bot
 
