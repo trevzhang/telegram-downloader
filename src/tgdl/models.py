@@ -40,9 +40,16 @@ class ChannelRef:
     invite_hash: str | None = None
     message_id: int | None = None
 
+    def __post_init__(self) -> None:
+        identifiers = (self.username, self.channel_id, self.invite_hash)
+        if sum(value is not None for value in identifiers) != 1:
+            raise ValueError("ChannelRef 必须且只能设置 username、channel_id、invite_hash 之一")
+
 
 @dataclass(frozen=True)
 class TaskSpec:
+    """date_from / date_to 必须为 aware UTC datetime（由 filters.parse_datetime 保证）。"""
+
     link: ChannelRef
     raw_link: str
     regex: str | None = None
