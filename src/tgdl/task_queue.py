@@ -45,9 +45,9 @@ class TaskQueue:
         if state is None or state.status not in ACTIVE_STATUSES:
             return False
         if task_id == self._current_id and self._current is not None:
-            self._cancel_requested = True
-            self._current.cancel()
-            return True
+            cancelled = self._current.cancel()  # 运行器已结束时返回 False
+            self._cancel_requested = cancelled
+            return cancelled
         self._set(replace(state, status=TaskStatus.CANCELLED))
         return True
 
@@ -63,7 +63,7 @@ class TaskQueue:
         self._current_id, self._cancel_requested = task_id, False
         self._current = asyncio.create_task(self._runner(state, self._set))
         try:
-            final = await self._current
+            final = _normalise_final(await self._current)
         except asyncio.CancelledError:
             if not self._cancel_requested:
                 raise
@@ -77,3 +77,11 @@ class TaskQueue:
 
     def _set(self, state: TaskState) -> None:
         self._states = {**self._states, state.task_id: state}
+
+
+def _normalise_final(state: TaskState) -> TaskState:
+    """运行器正常返回却仍是活动状态时视为完成，避免任务永远卡在 active 列表。"""
+    if state.status not in ACTIVE_STATUSES:
+        return state
+    log.warning("任务 #%d 运行器返回了活动状态 %s，按已完成处理", state.task_id, state.status.value)
+    return replace(state, status=TaskStatus.DONE)

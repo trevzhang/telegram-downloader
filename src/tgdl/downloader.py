@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
-from telethon.errors import FloodWaitError, RPCError
+from telethon.errors import BadRequestError, FileReferenceExpiredError, FloodWaitError, RPCError
 
 from tgdl.models import FileResult, FileStatus, MediaItem
 from tgdl.paths import part_path, target_path
@@ -16,6 +17,11 @@ log = logging.getLogger(__name__)
 
 BACKOFF_BASE_SECONDS = 2.0
 FLOOD_WAIT_MARGIN_SECONDS = 1
+MAX_FLOOD_WAIT_TOTAL_SECONDS = 3600  # 单个文件累计限流等待上限
+FLOOD_WAIT_CAP_ERROR = "限流等待超过上限"
+# BadRequest 一般是永久性错误（文件 ID 无效等），仅文件引用过期可通过重新取消息修复
+RETRYABLE_BAD_REQUESTS: tuple[type[BadRequestError], ...] = (FileReferenceExpiredError,)
+TRANSIENT_ERRORS: tuple[type[Exception], ...] = (OSError, RPCError)
 
 ProgressFn = Callable[[int, int], None]
 FloodWaitFn = Callable[[int], None]
@@ -26,8 +32,48 @@ class MediaUnavailableError(RuntimeError):
     """消息已被删除或无法获取，不重试。"""
 
 
+@dataclass(frozen=True)
+class _Attempt:
+    retries: int = 0
+    flood_waited: int = 0
+
+
 def _is_complete(path: Path, item: MediaItem) -> bool:
     return path.exists() and path.stat().st_size == item.size
+
+
+def _is_retryable(exc: Exception) -> bool:
+    if isinstance(exc, BadRequestError):
+        return isinstance(exc, RETRYABLE_BAD_REQUESTS)
+    return isinstance(exc, TRANSIENT_ERRORS)
+
+
+def _failed(item: MediaItem, path: Path, error: str) -> FileResult:
+    return FileResult(item=item, path=path, status=FileStatus.FAILED, error=error)
+
+
+def _describe(exc: Exception) -> str:
+    return f"{type(exc).__name__}: {exc}"
+
+
+def _log_final_failure(exc: Exception, item: MediaItem) -> None:
+    if isinstance(exc, TRANSIENT_ERRORS):
+        log.error("下载失败 %s: %s", item.file_name, _describe(exc))
+    else:
+        log.exception("下载 %s 时遇到未预期异常", item.file_name)
+
+
+async def _wait_flood(exc: FloodWaitError, attempt: _Attempt, item: MediaItem,
+                      on_flood_wait: FloodWaitFn, sleep: SleepFn) -> _Attempt | None:
+    """执行限流等待；累计超过上限时返回 None。"""
+    waited = attempt.flood_waited + exc.seconds
+    if waited > MAX_FLOOD_WAIT_TOTAL_SECONDS:
+        log.error("限流 %d 秒，累计 %d 秒超过上限: %s", exc.seconds, waited, item.file_name)
+        return None
+    log.warning("限流 %d 秒: %s", exc.seconds, item.file_name)
+    on_flood_wait(exc.seconds)
+    await sleep(exc.seconds + FLOOD_WAIT_MARGIN_SECONDS)
+    return replace(attempt, flood_waited=waited)
 
 
 async def _download_once(client: Any, entity: Any, item: MediaItem, part: Path, on_progress: ProgressFn) -> None:
@@ -46,29 +92,31 @@ async def download_item(
         return FileResult(item=item, path=path, status=FileStatus.SKIPPED)
     part = part_path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    attempt = 0
+    attempt = _Attempt()
     while True:
         try:
             await _download_once(client, entity, item, part, on_progress)
             part.replace(path)
             return FileResult(item=item, path=path, status=FileStatus.DONE)
-        except FloodWaitError as exc:
-            log.warning("限流 %d 秒: %s", exc.seconds, item.file_name)
-            on_flood_wait(exc.seconds)
-            await sleep(exc.seconds + FLOOD_WAIT_MARGIN_SECONDS)
         except asyncio.CancelledError:
             part.unlink(missing_ok=True)
             raise
+        except FloodWaitError as exc:
+            part.unlink(missing_ok=True)
+            next_attempt = await _wait_flood(exc, attempt, item, on_flood_wait, sleep)
+            if next_attempt is None:
+                return _failed(item, path, FLOOD_WAIT_CAP_ERROR)
+            attempt = next_attempt
         except MediaUnavailableError as exc:
             part.unlink(missing_ok=True)
-            return FileResult(item=item, path=path, status=FileStatus.FAILED, error=str(exc))
-        except (OSError, RPCError) as exc:
+            return _failed(item, path, str(exc))
+        except Exception as exc:  # 任何未知异常都不能逃出单文件下载，否则会拖垮整个任务
             part.unlink(missing_ok=True)
-            if attempt >= max_retries:
-                log.error("下载失败 %s: %s", item.file_name, exc)
-                return FileResult(item=item, path=path, status=FileStatus.FAILED, error=f"{type(exc).__name__}: {exc}")
-            attempt += 1
-            await sleep(BACKOFF_BASE_SECONDS * 2 ** (attempt - 1))
+            if not _is_retryable(exc) or attempt.retries >= max_retries:
+                _log_final_failure(exc, item)
+                return _failed(item, path, _describe(exc))
+            attempt = replace(attempt, retries=attempt.retries + 1)
+            await sleep(BACKOFF_BASE_SECONDS * 2 ** (attempt.retries - 1))
 
 
 async def download_all(

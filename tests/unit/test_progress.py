@@ -192,3 +192,15 @@ def test_render_summary_clamps_oversized_text_with_ellipsis() -> None:
     text = render_summary(state)
     assert len(text) <= 4096
     assert text.endswith("…")
+
+
+def test_snapshot_refreshes_clock_without_callbacks() -> None:
+    clock = _Clock()
+    tracker = _tracker(clock, _item(1))
+    tracker.on_flood_wait(5)
+    clock.now = 3.0
+    assert tracker.snapshot.flood_wait_remaining == 2
+    assert tracker.snapshot.now == 3.0
+    clock.now = 6.0
+    assert tracker.snapshot.flood_wait_remaining is None
+    assert tracker.snapshot.flood_wait_until is None

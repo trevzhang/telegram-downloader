@@ -129,6 +129,13 @@ class ProgressSnapshot:
 _COUNTER_FIELD = {FileStatus.DONE: "done", FileStatus.SKIPPED: "skipped", FileStatus.FAILED: "failed"}
 
 
+def _unexpired(flood_wait_until: float | None, now: float) -> float | None:
+    """限流截止时间已过则返回 None。"""
+    if flood_wait_until is not None and now >= flood_wait_until:
+        return None
+    return flood_wait_until
+
+
 class ProgressTracker:
     """持有最新的不可变快照；每次更新生成新快照替换引用。"""
 
@@ -143,7 +150,9 @@ class ProgressTracker:
 
     @property
     def snapshot(self) -> ProgressSnapshot:
-        return self._snap
+        """按当前时钟刷新 now 与限流状态，即使没有回调也能让倒计时递减。"""
+        now = self._clock()
+        return replace(self._snap, now=now, flood_wait_until=_unexpired(self._snap.flood_wait_until, now))
 
     def on_file_progress(self, message_id: int, name: str, current: int, total: int) -> None:
         previous = next((f.current for f in self._snap.active if f.message_id == message_id), 0)
@@ -172,11 +181,9 @@ class ProgressTracker:
     def _tick(self) -> None:
         """采样实际传输字节数（单调不减），并清理已过期的限流提示。"""
         now = self._clock()
-        until = self._snap.flood_wait_until
-        if until is not None and now >= until:
-            until = None
         self._window = self._window.add(now, self._snap.transferred)
-        self._snap = replace(self._snap, speed=self._window.speed(), now=now, flood_wait_until=until)
+        self._snap = replace(self._snap, speed=self._window.speed(), now=now,
+                             flood_wait_until=_unexpired(self._snap.flood_wait_until, now))
 
 
 def render_progress(snap: ProgressSnapshot) -> str:

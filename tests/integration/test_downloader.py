@@ -2,7 +2,7 @@ import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 
-from telethon.errors import FloodWaitError
+from telethon.errors import FileIdInvalidError, FileReferenceExpiredError, FloodWaitError
 
 from tgdl.downloader import download_all, download_item
 from tgdl.models import FileStatus, MediaItem, MediaKind
@@ -21,10 +21,6 @@ def _pair(mid: int, size: int = 16) -> tuple[FakeMessage, MediaItem]:
 
 async def _noop_sleep(_: float) -> None:
     return None
-
-
-def _cb() -> tuple[list[tuple[int, int]], list[int]]:
-    return [], []
 
 
 async def test_downloads_and_renames_part(tmp_path: Path) -> None:
@@ -116,3 +112,52 @@ async def test_download_all_respects_concurrency_and_updates_tracker(tmp_path: P
     assert client.max_concurrent == 2
     assert tracker.snapshot.done == 6 and tracker.snapshot.fraction == 1.0
     assert (tmp_path / "chan" / "2026-01" / "3_v3.mp4").exists()
+
+
+async def test_unknown_exception_fails_without_retry_and_siblings_continue(tmp_path: Path) -> None:
+    pairs = [_pair(1), _pair(2)]
+    client = FakeClient(messages=tuple(m for m, _ in pairs), failures=[ValueError("odd")])
+    items = tuple(i for _, i in pairs)
+    tracker = ProgressTracker(task_id=1, channel_title="c", items=items)
+    results = await download_all(client, object(), items, tmp_path, "chan", tracker, concurrency=1, max_retries=3)
+    assert [r.status for r in results] == [FileStatus.FAILED, FileStatus.DONE]
+    assert results[0].error == "ValueError: odd"
+    assert client.download_calls == [1, 2]
+    assert not list(tmp_path.rglob("*.part"))
+
+
+async def test_expired_file_reference_is_retried(tmp_path: Path) -> None:
+    msg, item = _pair(1)
+    client = FakeClient(messages=(msg,), failures=[FileReferenceExpiredError(request=None)])
+    result = await download_item(client, object(), item, tmp_path / "1.mp4", on_progress=lambda c, t: None,
+                                 on_flood_wait=lambda s: None, max_retries=3, sleep=_noop_sleep)
+    assert result.status is FileStatus.DONE
+    assert len(client.download_calls) == 2
+
+
+async def test_permanent_bad_request_fails_immediately(tmp_path: Path) -> None:
+    msg, item = _pair(1)
+    client = FakeClient(messages=(msg,), failures=[FileIdInvalidError(request=None)])
+    result = await download_item(client, object(), item, tmp_path / "1.mp4", on_progress=lambda c, t: None,
+                                 on_flood_wait=lambda s: None, max_retries=3, sleep=_noop_sleep)
+    assert result.status is FileStatus.FAILED
+    assert result.error is not None and "FileIdInvalidError" in result.error
+    assert len(client.download_calls) == 1
+    assert not list(tmp_path.rglob("*.part"))
+
+
+async def test_flood_wait_beyond_cap_fails_without_sleeping(tmp_path: Path) -> None:
+    msg, item = _pair(1)
+    client = FakeClient(messages=(msg,), failures=[FloodWaitError(request=None, capture=4000)])
+    slept: list[float] = []
+
+    async def sleep(seconds: float) -> None:
+        slept.append(seconds)
+
+    result = await download_item(client, object(), item, tmp_path / "1.mp4", on_progress=lambda c, t: None,
+                                 on_flood_wait=lambda s: None, max_retries=0, sleep=sleep)
+    assert result.status is FileStatus.FAILED
+    assert result.error is not None and "限流等待超过上限" in result.error
+    assert all(s < 4000 for s in slept)
+    assert len(client.download_calls) == 1
+    assert not list(tmp_path.rglob("*.part"))

@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from dataclasses import replace
 
 import pytest
@@ -99,3 +100,38 @@ async def test_shutdown_cancel_propagates() -> None:
     loop_task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await loop_task
+
+
+async def test_cancel_returns_false_when_running_task_already_finished() -> None:
+    gate = asyncio.Event()
+
+    async def runner(state: TaskState, publish) -> TaskState:
+        publish(replace(state, status=TaskStatus.SCANNING))
+        await gate.wait()
+        return replace(state, status=TaskStatus.DONE)
+
+    queue = TaskQueue(runner)
+    loop_task = asyncio.create_task(queue.run_forever())
+    queue.submit(SPEC)
+    await asyncio.sleep(0.01)
+    gate.set()
+    await asyncio.sleep(0)  # 运行器协程已结束，但队列尚未收到结果
+    assert queue.cancel(1) is False
+    await asyncio.sleep(0.01)
+    assert queue.get(1).status is TaskStatus.DONE
+    loop_task.cancel()
+
+
+async def test_runner_returning_active_status_is_normalised_to_done(caplog: pytest.LogCaptureFixture) -> None:
+    async def runner(state: TaskState, publish) -> TaskState:
+        return replace(state, status=TaskStatus.DOWNLOADING)
+
+    queue = TaskQueue(runner)
+    loop_task = asyncio.create_task(queue.run_forever())
+    queue.submit(SPEC)
+    with caplog.at_level(logging.WARNING, logger="tgdl.task_queue"):
+        await asyncio.sleep(0.02)
+    loop_task.cancel()
+    assert queue.get(1).status is TaskStatus.DONE
+    assert queue.active() == ()
+    assert any("downloading" in record.getMessage() for record in caplog.records)
