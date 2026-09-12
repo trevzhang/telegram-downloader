@@ -26,6 +26,12 @@ STARTUP_MESSAGE = "✅ tgdl 已启动，发送 /help 查看用法"
 NON_TTY_LOGIN_MESSAGE = "首次登录需要在交互终端运行（输入手机号和验证码）"
 BOT_SESSION_MISMATCH_MESSAGE = "data/bot.session 属于另一个 Bot，请删除后重试"
 BOT_TOKEN_FORMAT_MESSAGE = "BOT_TOKEN 格式不正确，应形如 123456:ABC-DEF"
+USER_SESSION_IS_BOT_MESSAGE = (
+    "data/user.session 登录的是 Bot 而不是你的个人账号，Bot 无法读取频道历史。"
+    "请删除 data/user.session 后重新运行，并在提示时输入手机号（不是 Bot Token）"
+)
+PHONE_PROMPT = "请输入你的个人账号手机号（含国际区号，如 +8613800000000）："
+PHONE_LOOKS_LIKE_TOKEN_MESSAGE = "这里需要的是手机号，不是 Bot Token，请重新输入"
 BOT_TOKEN_SEPARATOR = ":"
 
 
@@ -73,12 +79,24 @@ def bot_id_from_token(token: str) -> int:
     return int(head)
 
 
+def ask_phone() -> str:
+    """首次登录时询问手机号；Telethon 默认提示允许输入 Bot Token，这里明确拒绝。"""
+    while True:
+        value = input(PHONE_PROMPT).strip()
+        if BOT_TOKEN_SEPARATOR in value:
+            print(PHONE_LOOKS_LIKE_TOKEN_MESSAGE)
+            continue
+        return value
+
+
 async def start_clients(user: TelegramClient, bot: TelegramClient, settings: Settings) -> None:
     """登录两个客户端；首次登录必须在交互终端，且 bot.session 必须与 BOT_TOKEN 属于同一个 Bot。"""
     await user.connect()
     if not await user.is_user_authorized() and not sys.stdin.isatty():
         raise ConfigError(NON_TTY_LOGIN_MESSAGE)
-    await user.start()  # 首次运行会在终端交互输入手机号与验证码
+    await user.start(phone=ask_phone)  # 首次运行会在终端交互输入手机号与验证码
+    if (await user.get_me()).bot:
+        raise ConfigError(USER_SESSION_IS_BOT_MESSAGE)
     token = settings.bot_token.get_secret_value()
     await bot.start(bot_token=token)  # 已有 session 时 Telethon 不会用 token 重新登录
     me = await bot.get_me()

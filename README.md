@@ -56,7 +56,7 @@ cp .env.example .env       # 复制配置模板
 uv run tgdl
 ```
 
-请在项目根目录执行。首次运行会在终端提示输入**手机号**（国际格式，如 `+8613800000000`）和 Telegram 发来的**验证码**；开启了两步验证的账号还会要求输入密码，因此首次登录必须在交互终端运行（非 TTY 环境会直接报错提示）。登录成功后 session 持久化在 `data/user.session` 与 `data/bot.session`，之后启动免登录。若更换了 `BOT_TOKEN`，请删除旧的 `data/bot.session` 再启动，否则会提示该 session 属于另一个 Bot。
+请在项目根目录执行。首次运行会在终端提示输入**手机号**（国际格式，如 `+8613800000000`）和 Telegram 发来的**验证码**；开启了两步验证的账号还会要求输入密码，因此首次登录必须在交互终端运行（非 TTY 环境会直接报错提示）。**注意：手机号那一步必须输入你自己的个人账号手机号，千万不要输入 Bot Token。** Bot 账号无法读取频道历史；程序会在登录后校验，若发现 `data/user.session` 登录的是 Bot，会报错并要求删除该文件后重新登录。登录成功后 session 持久化在 `data/user.session` 与 `data/bot.session`，之后启动免登录。若更换了 `BOT_TOKEN`，请删除旧的 `data/bot.session` 再启动，否则会提示该 session 属于另一个 Bot。
 
 启动成功后 Bot 会给你发一条「✅ tgdl 已启动，发送 /help 查看用法」；如果你还没给 Bot 发过 `/start`，这条通知会发送失败，程序只记录警告并继续运行。日志同时输出到控制台与 `data/logs/tgdl.log`（按天轮转，保留 14 天）。按 `Ctrl+C` 退出。
 

@@ -12,6 +12,7 @@ from tgdl.main import (
     BOT_SESSION_NAME,
     USER_SESSION_NAME,
     _run_until_first_done,
+    ask_phone,
     bot_id_from_token,
     build_clients,
     build_worker_config,
@@ -77,14 +78,17 @@ def test_bot_id_from_token(token: str) -> None:
 @dataclass
 class _Me:
     id: int
+    bot: bool = False
 
 
 @dataclass
 class _FakeClient:
     authorized: bool = True
     me_id: int = 42
+    me_bot: bool = False
     calls: list[str] = field(default_factory=list)
     bot_token: str | None = None
+    phone: object = None
 
     async def connect(self) -> None:
         self.calls.append("connect")
@@ -93,12 +97,13 @@ class _FakeClient:
         self.calls.append("is_user_authorized")
         return self.authorized
 
-    async def start(self, bot_token: str | None = None) -> None:
+    async def start(self, bot_token: str | None = None, phone: object = None) -> None:
         self.calls.append("start")
         self.bot_token = bot_token
+        self.phone = phone
 
     async def get_me(self) -> _Me:
-        return _Me(self.me_id)
+        return _Me(self.me_id, self.me_bot)
 
 
 async def test_start_clients_happy_path(tmp_path: Path) -> None:
@@ -114,6 +119,25 @@ async def test_start_clients_refuses_first_login_without_tty(tmp_path: Path, mon
     with pytest.raises(ConfigError, match="交互终端"):
         await start_clients(user, bot, _settings(tmp_path))  # type: ignore[arg-type]
     assert "start" not in user.calls and bot.calls == []
+
+
+async def test_start_clients_rejects_user_session_logged_in_as_bot(tmp_path: Path) -> None:
+    user, bot = _FakeClient(me_bot=True), _FakeClient()
+    with pytest.raises(ConfigError, match="user.session"):
+        await start_clients(user, bot, _settings(tmp_path))  # type: ignore[arg-type]
+    assert bot.calls == []
+
+
+async def test_start_clients_passes_phone_prompt_to_user_start(tmp_path: Path) -> None:
+    user, bot = _FakeClient(), _FakeClient()
+    await start_clients(user, bot, _settings(tmp_path))  # type: ignore[arg-type]
+    assert user.phone is ask_phone
+
+
+def test_ask_phone_rejects_bot_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    answers = iter(["123456:ABC-DEF", " +8613800000000 "])
+    monkeypatch.setattr("builtins.input", lambda _prompt: next(answers))
+    assert ask_phone() == "+8613800000000"
 
 
 async def test_start_clients_detects_bot_session_mismatch(tmp_path: Path) -> None:
