@@ -23,6 +23,7 @@ class FakeMessage:
     file: FakeFile | None = None
     sticker: object | None = None
     grouped_id: int | None = None
+    web_preview: object | None = None
 
 
 @dataclass(frozen=True)
@@ -34,11 +35,14 @@ class FakeEntity:
 
 @dataclass
 class FakeClient:
-    """模拟 iter_messages / get_messages / download_media / get_entity。"""
+    """模拟 iter_messages / get_messages / download_media / get_entity 及原始请求调用。"""
 
     messages: tuple[FakeMessage, ...] = ()
     entity: FakeEntity | None = None
     entity_error: Exception | None = None
+    request_results: dict[type, object] = field(default_factory=dict)  # 按请求类型返回结果或抛出异常
+    entity_calls: list[Any] = field(default_factory=list)
+    request_calls: list[Any] = field(default_factory=list)
     failures: list[Exception] = field(default_factory=list)  # 依次抛出，用完后正常下载
     chunk: int = 4
     delay: float = 0.0
@@ -50,17 +54,27 @@ class FakeClient:
         self.messages = tuple(sorted(self.messages, key=lambda m: m.id))
 
     async def get_entity(self, ref: Any) -> FakeEntity | None:
+        self.entity_calls.append(ref)
         if self.entity_error:
             raise self.entity_error
         return self.entity
 
+    async def __call__(self, request: Any) -> Any:
+        self.request_calls.append(request)
+        result = self.request_results[type(request)]
+        if isinstance(result, Exception):
+            raise result
+        return result
+
     async def iter_messages(self, entity: Any, reverse: bool = False, min_id: int = 0,
                             max_id: int = 0, offset_date: datetime | None = None) -> AsyncIterator[FakeMessage]:
+        # 与 Telethon 一致：reverse 时 min_id 充当 offset_id，优先级高于 offset_date（后者被忽略）
+        date_floor = None if min_id else offset_date
         selected = [
             m for m in self.messages
             if (min_id == 0 or m.id > min_id)
             and (max_id == 0 or m.id < max_id)
-            and (offset_date is None or m.date > offset_date)
+            and (date_floor is None or m.date > date_floor)
         ]
         for message in (selected if reverse else reversed(selected)):
             yield message

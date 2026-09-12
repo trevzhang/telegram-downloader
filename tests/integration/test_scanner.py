@@ -1,7 +1,13 @@
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from telethon.errors import ChannelPrivateError, UsernameNotOccupiedError
+from telethon.errors import (
+    ChannelPrivateError, InviteHashExpiredError, InviteRequestSentError,
+    UserAlreadyParticipantError, UsernameNotOccupiedError,
+)
+from telethon.tl.functions.messages import CheckChatInviteRequest, ImportChatInviteRequest
+from telethon.tl.types import PeerChannel
 
 from tgdl.filters import MediaFilter, compile_regex
 from tgdl.models import ChannelRef, MediaKind, TaskSpec
@@ -98,3 +104,92 @@ async def test_resolve_by_username() -> None:
 async def test_resolve_maps_errors(error: Exception, match: str) -> None:
     with pytest.raises(ChannelAccessError, match=match):
         await resolve_channel(FakeClient(entity_error=error), ChannelRef(username="c"))
+
+
+def test_extract_ignores_link_preview() -> None:
+    assert extract_media(_msg(7, text="see https://x", file=IMG_DOC, web_preview=object())) is None
+
+
+async def test_scan_enforces_date_from_locally_when_message_link_disables_offset_date() -> None:
+    """带消息 ID 的链接会让 Telethon 忽略 offset_date，本地必须补上闭区间下界。"""
+    client = FakeClient(messages=(
+        _msg(1, days=0, file=VIDEO),
+        _msg(2, days=1, file=VIDEO),
+        _msg(3, days=2, file=VIDEO),
+        _msg(4, days=2, file=VIDEO),
+    ))
+    spec = TaskSpec(link=ChannelRef(username="c", message_id=2), raw_link="x", date_from=T0 + timedelta(days=2))
+    items = await scan(client, object(), spec, MediaFilter())
+    assert [i.message_id for i in items] == [3, 4]
+
+
+@dataclass(frozen=True)
+class _Updates:
+    chats: tuple[FakeEntity, ...] = ()
+
+
+@dataclass(frozen=True)
+class _JoinResult:
+    updates: _Updates
+
+
+@dataclass(frozen=True)
+class _InviteInfo:
+    chat: FakeEntity | None = None
+
+
+INVITE = ChannelRef(invite_hash="abc")
+
+
+async def test_resolve_invite_joins_and_returns_chat() -> None:
+    entity = FakeEntity(id=5, title="secret")
+    client = FakeClient(request_results={ImportChatInviteRequest: _JoinResult(_Updates((entity,)))})
+    assert await resolve_channel(client, INVITE) is entity
+    assert isinstance(client.request_calls[0], ImportChatInviteRequest)
+
+
+async def test_resolve_invite_without_chats_raises() -> None:
+    client = FakeClient(request_results={ImportChatInviteRequest: _JoinResult(_Updates())})
+    with pytest.raises(ChannelAccessError, match="审批"):
+        await resolve_channel(client, INVITE)
+
+
+async def test_resolve_invite_already_participant_uses_check() -> None:
+    entity = FakeEntity(id=5)
+    client = FakeClient(request_results={
+        ImportChatInviteRequest: UserAlreadyParticipantError(request=None),
+        CheckChatInviteRequest: _InviteInfo(chat=entity),
+    })
+    assert await resolve_channel(client, INVITE) is entity
+
+
+async def test_resolve_invite_check_without_chat_raises() -> None:
+    client = FakeClient(request_results={
+        ImportChatInviteRequest: UserAlreadyParticipantError(request=None),
+        CheckChatInviteRequest: _InviteInfo(),
+    })
+    with pytest.raises(ChannelAccessError, match="无法获取"):
+        await resolve_channel(client, INVITE)
+
+
+@pytest.mark.parametrize(
+    ("error", "match"),
+    [(InviteHashExpiredError(request=None), "邀请链接无效"), (InviteRequestSentError(request=None), "审批")],
+)
+async def test_resolve_invite_maps_errors(error: Exception, match: str) -> None:
+    client = FakeClient(request_results={ImportChatInviteRequest: error})
+    with pytest.raises(ChannelAccessError, match=match):
+        await resolve_channel(client, INVITE)
+
+
+async def test_resolve_by_channel_id_uses_peer_channel() -> None:
+    entity = FakeEntity(id=123)
+    client = FakeClient(entity=entity)
+    assert await resolve_channel(client, ChannelRef(channel_id=123)) is entity
+    assert client.entity_calls == [PeerChannel(123)]
+
+
+async def test_resolve_value_error_maps_to_access_error() -> None:
+    client = FakeClient(entity_error=ValueError("no such"))
+    with pytest.raises(ChannelAccessError, match="无法解析频道"):
+        await resolve_channel(client, ChannelRef(username="c"))

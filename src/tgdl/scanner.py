@@ -6,7 +6,7 @@ from dataclasses import replace
 from typing import Any
 
 from telethon.errors import (
-    ChannelPrivateError, InviteHashExpiredError, InviteHashInvalidError,
+    ChannelPrivateError, InviteHashExpiredError, InviteHashInvalidError, InviteRequestSentError,
     UserAlreadyParticipantError, UsernameInvalidError, UsernameNotOccupiedError,
 )
 from telethon.tl.functions.messages import CheckChatInviteRequest, ImportChatInviteRequest
@@ -23,12 +23,30 @@ class ChannelAccessError(RuntimeError):
     """频道无法访问，消息可直接回复给用户。"""
 
 
+def _chat_from_join_result(result: Any) -> Any:
+    """ImportChatInviteRequest 返回 ChatInviteJoinResultOk(.updates.chats) 或 WebView（无 chats）。"""
+    updates = getattr(result, "updates", result)
+    chats = getattr(updates, "chats", None) or ()
+    if not chats:
+        raise ChannelAccessError("加入后未返回频道信息（可能需要管理员审批）")
+    return chats[0]
+
+
+async def _chat_from_invite_check(client: Any, invite_hash: str) -> Any:
+    """已是成员时用 CheckChatInviteRequest 取频道；ChatInvite/ChatInvitePeek 没有 .chat。"""
+    chat = getattr(await client(CheckChatInviteRequest(invite_hash)), "chat", None)
+    if chat is None:
+        raise ChannelAccessError("无法获取邀请链接对应的频道")
+    return chat
+
+
 async def _join_by_invite(client: Any, invite_hash: str) -> Any:
     try:
-        updates = await client(ImportChatInviteRequest(invite_hash))
-        return updates.chats[0]
+        return _chat_from_join_result(await client(ImportChatInviteRequest(invite_hash)))
     except UserAlreadyParticipantError:
-        return (await client(CheckChatInviteRequest(invite_hash))).chat
+        return await _chat_from_invite_check(client, invite_hash)
+    except InviteRequestSentError as exc:
+        raise ChannelAccessError("已发送加入申请，等待管理员审批后重试") from exc
     except (InviteHashExpiredError, InviteHashInvalidError) as exc:
         raise ChannelAccessError("邀请链接无效或已过期") from exc
 
@@ -51,6 +69,8 @@ async def resolve_channel(client: Any, ref: ChannelRef) -> Any:
 def extract_media(message: Any) -> MediaItem | None:
     file = getattr(message, "file", None)
     if file is None or getattr(message, "sticker", None) is not None:
+        return None
+    if getattr(message, "web_preview", None) is not None:  # 链接预览不是频道自身的媒体
         return None
     mime = (file.mime_type or "").lower()
     if mime.startswith("image/"):
@@ -92,6 +112,8 @@ async def scan(client: Any, entity: Any, spec: TaskSpec, media_filter: MediaFilt
     async for message in client.iter_messages(entity, **iter_kwargs(spec)):
         if spec.date_to is not None and message.date > spec.date_to:
             break
+        if spec.date_from is not None and message.date < spec.date_from:  # 服务端 offset_date 仅是优化
+            continue
         item = extract_media(message)
         if item is not None:
             collected.append((message, item))
