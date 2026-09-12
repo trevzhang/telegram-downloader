@@ -5,7 +5,7 @@ import asyncio
 import logging
 from typing import Awaitable, Callable
 
-from telethon.errors import MessageNotModifiedError, RPCError
+from telethon.errors import MessageNotModifiedError
 
 log = logging.getLogger(__name__)
 
@@ -21,14 +21,19 @@ class ProgressReporter:
         self._last_text = ""
 
     async def update(self, text: str) -> bool:
-        """文本变化时才编辑；返回是否真正发送了编辑。"""
+        """文本变化时才编辑；返回是否真正发送了编辑。
+
+        任何 Exception（RPCError、网络错误等）都只记录警告，不中断刷新循环；
+        CancelledError 是 BaseException，会正常向上传播。
+        """
         if text == self._last_text:
             return False
         try:
             await self._edit(text)
         except MessageNotModifiedError:
+            self._last_text = text
             return False
-        except RPCError as exc:
+        except Exception as exc:
             log.warning("编辑进度消息失败: %s", exc)
             return False
         self._last_text = text

@@ -64,3 +64,30 @@ def test_cleanup_parts_removes_only_part_files(tmp_path: Path) -> None:
 
 def test_cleanup_parts_missing_root(tmp_path: Path) -> None:
     assert cleanup_parts(tmp_path / "nope") == 0
+
+
+def test_sanitize_truncates_by_bytes_keeping_ext() -> None:
+    for count in (100, 150):
+        name = sanitize_filename("视" * count + ".mp4")
+        assert name.endswith(".mp4")
+        assert len(name.encode("utf-8")) <= 200
+        assert len(name) <= 120
+
+
+def test_sanitize_truncation_strips_trailing_dots_and_spaces() -> None:
+    name = sanitize_filename("x" * 115 + " .." + "y" * 10 + ".mp4")
+    assert name.endswith(".mp4")
+    assert not name[:-4].endswith((" ", "."))
+
+
+def test_sanitize_replaces_delete_char() -> None:
+    assert sanitize_filename("a\x7fb.mp4") == "a_b.mp4"
+
+
+def test_target_path_sanitizes_file_name() -> None:
+    item = MediaItem(message_id=42, date=datetime(2026, 3, 5, tzinfo=timezone.utc),
+                     kind=MediaKind.VIDEO, file_name="../evil.mp4", size=1)
+    path = target_path(Path("dl"), "chan", item)
+    assert ".." not in path.parts
+    assert path.parent == Path("dl/chan/2026-03")
+    assert path.name.startswith("42_") and path.name.endswith("evil.mp4")

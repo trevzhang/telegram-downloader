@@ -1,6 +1,7 @@
 """进度聚合：滑动窗口速度、ETA、文本渲染。快照不可变，Tracker 只替换引用。"""
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import dataclass, replace
 from typing import Callable
@@ -11,6 +12,9 @@ BAR_WIDTH = 15
 SPEED_WINDOW_SECONDS = 10.0
 MAX_ACTIVE_LINES = 5
 MAX_FAILED_LINES = 10
+TELEGRAM_MESSAGE_LIMIT = 4096
+MAX_ERROR_CHARS = 120
+ELLIPSIS = "…"
 
 STATUS_LABEL = {
     TaskStatus.QUEUED: "排队中",
@@ -69,6 +73,13 @@ def render_bar(fraction: float, width: int = BAR_WIDTH) -> str:
     return "▓" * filled + "░" * (width - filled)
 
 
+def truncate_text(text: str, limit: int) -> str:
+    """超过 limit 个字符时保留前 limit 个字符并追加省略号。"""
+    if len(text) <= limit:
+        return text
+    return text[:limit] + ELLIPSIS
+
+
 @dataclass(frozen=True)
 class FileProgress:
     message_id: int
@@ -88,9 +99,11 @@ class ProgressSnapshot:
     skipped: int = 0
     failed: int = 0
     finished_bytes: int = 0
+    transferred: int = 0
     active: tuple[FileProgress, ...] = ()
     speed: float = 0.0
-    flood_wait: int | None = None
+    now: float = 0.0
+    flood_wait_until: float | None = None
 
     @property
     def done_bytes(self) -> int:
@@ -103,6 +116,14 @@ class ProgressSnapshot:
     @property
     def fraction(self) -> float:
         return self.done_bytes / self.total_bytes if self.total_bytes else 0.0
+
+    @property
+    def flood_wait_remaining(self) -> int | None:
+        """距限流结束的整秒数；未在限流中返回 None。"""
+        if self.flood_wait_until is None:
+            return None
+        remaining = math.ceil(self.flood_wait_until - self.now)
+        return remaining if remaining > 0 else None
 
 
 _COUNTER_FIELD = {FileStatus.DONE: "done", FileStatus.SKIPPED: "skipped", FileStatus.FAILED: "failed"}
@@ -117,7 +138,7 @@ class ProgressTracker:
         self._window = SpeedWindow()
         self._snap = ProgressSnapshot(
             task_id=task_id, channel_title=channel_title, status=TaskStatus.DOWNLOADING,
-            total_files=len(items), total_bytes=sum(i.size for i in items),
+            total_files=len(items), total_bytes=sum(i.size for i in items), now=clock(),
         )
 
     @property
@@ -125,9 +146,13 @@ class ProgressTracker:
         return self._snap
 
     def on_file_progress(self, message_id: int, name: str, current: int, total: int) -> None:
+        previous = next((f.current for f in self._snap.active if f.message_id == message_id), 0)
         others = tuple(f for f in self._snap.active if f.message_id != message_id)
         entry = FileProgress(message_id=message_id, name=name, current=current, total=total)
-        self._snap = replace(self._snap, active=others + (entry,), flood_wait=None)
+        self._snap = replace(
+            self._snap, active=others + (entry,),
+            transferred=self._snap.transferred + max(0, current - previous),
+        )
         self._tick()
 
     def on_file_done(self, result: FileResult) -> None:
@@ -141,11 +166,17 @@ class ProgressTracker:
         self._tick()
 
     def on_flood_wait(self, seconds: int) -> None:
-        self._snap = replace(self._snap, flood_wait=seconds)
+        now = self._clock()
+        self._snap = replace(self._snap, now=now, flood_wait_until=now + seconds)
 
     def _tick(self) -> None:
-        self._window = self._window.add(self._clock(), self._snap.done_bytes)
-        self._snap = replace(self._snap, speed=self._window.speed())
+        """采样实际传输字节数（单调不减），并清理已过期的限流提示。"""
+        now = self._clock()
+        until = self._snap.flood_wait_until
+        if until is not None and now >= until:
+            until = None
+        self._window = self._window.add(now, self._snap.transferred)
+        self._snap = replace(self._snap, speed=self._window.speed(), now=now, flood_wait_until=until)
 
 
 def render_progress(snap: ProgressSnapshot) -> str:
@@ -157,11 +188,11 @@ def render_progress(snap: ProgressSnapshot) -> str:
         f"({format_bytes(snap.done_bytes)} / {format_bytes(snap.total_bytes)})",
         f"速度：{format_bytes(snap.speed)}/s    剩余：{format_duration(eta_seconds(remaining, snap.speed))}",
     ]
-    if snap.flood_wait:
-        lines.append(f"⚠️ 限流等待 {snap.flood_wait} 秒")
+    if snap.flood_wait_remaining:
+        lines.append(f"⚠️ 限流等待 {snap.flood_wait_remaining} 秒")
     if snap.active:
         lines.append("正在下载：")
-        for entry in snap.active[:MAX_ACTIVE_LINES]:
+        for entry in sorted(snap.active, key=lambda f: f.message_id)[:MAX_ACTIVE_LINES]:
             pct = entry.current / entry.total * 100 if entry.total else 0.0
             lines.append(f"  • {entry.name}  {pct:.0f}%")
     lines.append(f"已跳过：{snap.skipped} 个（已存在）  失败：{snap.failed} 个")
@@ -180,9 +211,12 @@ def render_summary(state: TaskState) -> str:
     failures = tuple(r for r in state.results if r.status is FileStatus.FAILED)
     if failures:
         lines.append("失败列表：")
-        lines.extend(f"  • {r.item.file_name}: {r.error}" for r in failures[:MAX_FAILED_LINES])
+        lines.extend(
+            f"  • {r.item.file_name}: {truncate_text(r.error or '', MAX_ERROR_CHARS)}"
+            for r in failures[:MAX_FAILED_LINES]
+        )
         if len(failures) > MAX_FAILED_LINES:
             lines.append(f"  …另有 {len(failures) - MAX_FAILED_LINES} 个，详见日志")
     if state.error:
-        lines.append(f"错误：{state.error}")
-    return "\n".join(lines)
+        lines.append(f"错误：{truncate_text(state.error, MAX_ERROR_CHARS)}")
+    return truncate_text("\n".join(lines), TELEGRAM_MESSAGE_LIMIT - len(ELLIPSIS))

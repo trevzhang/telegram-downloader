@@ -111,3 +111,84 @@ def test_render_summary_lists_failures() -> None:
     assert "成功：1" in text and "失败：1" in text
     assert "bad.mp4" in text and "timeout" in text
     assert "已取消" in render_summary(replace(state, status=TaskStatus.CANCELLED))
+
+
+MB = 1024 * 1024
+
+
+def _tracker(clock: _Clock, *items: MediaItem) -> ProgressTracker:
+    return ProgressTracker(task_id=1, channel_title="@c", items=items, clock=clock)
+
+
+def test_speed_never_negative_after_active_file_fails() -> None:
+    clock = _Clock()
+    tracker = _tracker(clock, _item(1, size=100 * MB))
+    tracker.on_file_progress(1, "f.mp4", 50 * MB, 100 * MB)
+    clock.now = 1.0
+    tracker.on_file_done(FileResult(item=_item(1, size=100 * MB), path=Path("x"), status=FileStatus.FAILED, error="e"))
+    assert tracker.snapshot.speed >= 0
+    assert tracker.snapshot.transferred == 50 * MB
+
+
+def test_skipped_file_does_not_inflate_speed() -> None:
+    clock = _Clock()
+    tracker = _tracker(clock, _item(1, size=100 * MB), _item(2, size=100 * MB))
+    tracker.on_file_progress(1, "f.mp4", 0, 100 * MB)
+    clock.now = 0.01
+    tracker.on_file_done(FileResult(item=_item(2, size=100 * MB), path=Path("y"), status=FileStatus.SKIPPED))
+    assert tracker.snapshot.speed == 0.0
+    assert tracker.snapshot.transferred == 0
+    assert tracker.snapshot.done_bytes == 100 * MB
+
+
+def test_retry_restart_counts_transferred_without_negative_sample() -> None:
+    clock = _Clock()
+    tracker = _tracker(clock, _item(1, size=100))
+    for now, current in ((0.0, 60), (1.0, 0), (2.0, 30)):
+        clock.now = now
+        tracker.on_file_progress(1, "f.mp4", current, 100)
+        assert tracker.snapshot.speed >= 0
+    assert tracker.snapshot.transferred == 90
+    assert tracker.snapshot.done_bytes == 30
+
+
+def test_flood_wait_survives_other_files_progress_and_expires() -> None:
+    clock = _Clock()
+    tracker = _tracker(clock, _item(1), _item(2))
+    tracker.on_flood_wait(12)
+    clock.now = 1.0
+    tracker.on_file_progress(2, "g.mp4", 10, 100)
+    assert tracker.snapshot.flood_wait_remaining == 11
+    assert "限流等待 11 秒" in render_progress(tracker.snapshot)
+    clock.now = 12.5
+    tracker.on_file_progress(2, "g.mp4", 20, 100)
+    assert tracker.snapshot.flood_wait_remaining is None
+    assert "限流等待" not in render_progress(tracker.snapshot)
+
+
+def test_render_summary_never_exceeds_telegram_limit() -> None:
+    spec = TaskSpec(link=ChannelRef(username="c"), raw_link="x")
+    items = tuple(_item(i, name="视" * 120) for i in range(20))
+    results = tuple(FileResult(item=it, path=Path("p"), status=FileStatus.FAILED, error="错" * 300) for it in items)
+    state = TaskState(task_id=1, spec=spec, status=TaskStatus.FAILED, channel_title="@c",
+                      items=items, results=results, error="炸" * 300)
+    text = render_summary(state)
+    assert len(text) <= 4096
+    assert "错" * 121 not in text and "炸" * 121 not in text
+    assert "错" * 120 + "…" in text
+
+
+def test_render_progress_orders_active_by_message_id() -> None:
+    tracker = ProgressTracker(task_id=1, channel_title="@c", items=(_item(1), _item(2), _item(3)))
+    for mid, name in ((3, "c.mp4"), (1, "a.mp4"), (2, "b.mp4")):
+        tracker.on_file_progress(mid, name, 10, 100)
+    text = render_progress(tracker.snapshot)
+    assert text.index("a.mp4") < text.index("b.mp4") < text.index("c.mp4")
+
+
+def test_render_summary_clamps_oversized_text_with_ellipsis() -> None:
+    spec = TaskSpec(link=ChannelRef(username="c"), raw_link="x")
+    state = TaskState(task_id=1, spec=spec, status=TaskStatus.DONE, channel_title="标" * 5000)
+    text = render_summary(state)
+    assert len(text) <= 4096
+    assert text.endswith("…")
