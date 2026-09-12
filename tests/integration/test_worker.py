@@ -2,7 +2,8 @@ import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 
-from telethon.errors import ChannelPrivateError
+import pytest
+from telethon.errors import ChannelPrivateError, RPCError
 
 from tgdl.models import ChannelRef, FileStatus, TaskSpec, TaskState, TaskStatus
 from tgdl.worker import TaskWorker, WorkerConfig
@@ -82,3 +83,11 @@ async def test_cancel_sends_notice_and_reraises(tmp_path: Path) -> None:
         pass
     assert any("已取消" in text for _, text in notifier.edits) or any("已取消" in t for t in notifier.sent)
     assert not list(tmp_path.rglob("*.part"))
+
+
+async def test_unexpected_error_notifies_then_propagates(tmp_path: Path) -> None:
+    notifier = FakeNotifier()
+    client = _client(entity_error=RPCError(None, "boom"))
+    with pytest.raises(RPCError):
+        await _worker(client, tmp_path, notifier).run(_state(), lambda s: None)
+    assert any("失败" in text and "boom" in text for text in notifier.sent)

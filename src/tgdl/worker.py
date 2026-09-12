@@ -55,6 +55,9 @@ class TaskWorker:
         except asyncio.CancelledError:
             await self._notifier.send(f"🚫 任务 #{state.task_id} 已取消")
             raise
+        except Exception as exc:  # 其余异常交给队列记录并标记失败，但先告知 OWNER
+            await self._notifier.send(f"❌ 任务 #{state.task_id} 失败：{type(exc).__name__}: {exc}")
+            raise
         finally:
             self._tracker = None
 
