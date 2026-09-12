@@ -67,3 +67,13 @@ def test_parse_cancel() -> None:
     assert parse_cancel(["3"]) == 3
     with pytest.raises(CommandError, match="用法"):
         parse_cancel([])
+
+
+def test_parse_dl_bad_type_choice() -> None:
+    with pytest.raises(CommandError, match="--type"):
+        parse_dl(["https://t.me/chan", "--type", "audio"])
+
+
+def test_parse_dl_option_missing_value() -> None:
+    with pytest.raises(CommandError, match="--regex"):
+        parse_dl(["https://t.me/chan", "--regex"])

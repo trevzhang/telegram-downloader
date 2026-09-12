@@ -73,8 +73,16 @@ def parse_ids(text: str | None) -> tuple[int | None, int | None]:
     return int(match.group(1)), int(match.group(2))
 
 
+def _parse_dl_args(args: list[str]) -> argparse.Namespace:
+    # exit_on_error=False 下 argparse.ArgumentError 不经过 error()，需在此统一转成 CommandError
+    try:
+        return _DL_PARSER.parse_args(args)
+    except argparse.ArgumentError as exc:
+        raise CommandError(str(exc)) from exc
+
+
 def parse_dl(args: list[str]) -> TaskSpec:
-    ns = _DL_PARSER.parse_args(args)
+    ns = _parse_dl_args(args)
     try:
         id_from, id_to = parse_ids(ns.ids)
         spec = TaskSpec(
