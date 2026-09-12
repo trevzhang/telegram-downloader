@@ -40,6 +40,9 @@ class FakeClient:
     messages: tuple[FakeMessage, ...] = ()
     entity: FakeEntity | None = None
     entity_error: Exception | None = None
+    entity_errors: list[Exception] = field(default_factory=list)  # 依次抛出，用完后回落到 entity_error/entity
+    dialogs_unlock: bool = False  # True 时调用过 get_dialogs 后 get_entity 不再抛 entity_error
+    dialogs_calls: int = 0
     request_results: dict[type, object] = field(default_factory=dict)  # 按请求类型返回结果或抛出异常
     entity_calls: list[Any] = field(default_factory=list)
     request_calls: list[Any] = field(default_factory=list)
@@ -55,9 +58,15 @@ class FakeClient:
 
     async def get_entity(self, ref: Any) -> FakeEntity | None:
         self.entity_calls.append(ref)
-        if self.entity_error:
+        if self.entity_errors:
+            raise self.entity_errors.pop(0)
+        if self.entity_error and not (self.dialogs_unlock and self.dialogs_calls):
             raise self.entity_error
         return self.entity
+
+    async def get_dialogs(self) -> list[Any]:
+        self.dialogs_calls += 1
+        return []
 
     async def __call__(self, request: Any) -> Any:
         self.request_calls.append(request)

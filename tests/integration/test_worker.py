@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
-from telethon.errors import ChannelPrivateError, RPCError
+from telethon.errors import ChannelPrivateError, FloodWaitError, RPCError
 
 from tgdl.models import ChannelRef, FileStatus, TaskSpec, TaskState, TaskStatus
 from tgdl.worker import TaskWorker, WorkerConfig
@@ -20,9 +20,9 @@ def _client(n: int = 2, **kw: object) -> FakeClient:
     )
 
 
-def _worker(client: FakeClient, tmp_path: Path, notifier: FakeNotifier) -> TaskWorker:
+def _worker(client: FakeClient, tmp_path: Path, notifier: FakeNotifier, **kw: object) -> TaskWorker:
     config = WorkerConfig(download_dir=tmp_path, concurrency=2, max_retries=0, progress_interval=0.01)
-    return TaskWorker(client, notifier, config)
+    return TaskWorker(client, notifier, config, **kw)  # type: ignore[arg-type]
 
 
 def _state(**kw: object) -> TaskState:
@@ -136,3 +136,31 @@ async def test_download_error_finalizes_overview_and_propagates(tmp_path: Path, 
     last_id, last_text = notifier.edits[-1]
     assert last_id == overview_id and "失败" in last_text and "kaboom" in last_text
     assert not any("失败" in text for text in notifier.sent)
+
+
+class _SleepSpy:
+    def __init__(self) -> None:
+        self.calls: list[float] = []
+
+    async def __call__(self, seconds: float) -> None:
+        self.calls.append(seconds)
+
+
+async def test_flood_wait_during_resolve_waits_and_retries(tmp_path: Path) -> None:
+    notifier = FakeNotifier()
+    sleep = _SleepSpy()
+    client = _client(2, entity_errors=[FloodWaitError(request=None, capture=3)])
+    final = await _worker(client, tmp_path, notifier, sleep=sleep).run(_state(), lambda s: None)
+    assert final.status is TaskStatus.DONE and len(final.results) == 2
+    assert any("限流" in text and "3 秒" in text for text in notifier.sent)
+    assert sleep.calls and sleep.calls[0] >= 3
+
+
+async def test_flood_wait_over_cap_fails_task_with_clear_message(tmp_path: Path) -> None:
+    notifier = FakeNotifier()
+    sleep = _SleepSpy()
+    client = _client(2, entity_errors=[FloodWaitError(request=None, capture=5000)])
+    final = await _worker(client, tmp_path, notifier, sleep=sleep).run(_state(), lambda s: None)
+    assert final.status is TaskStatus.FAILED
+    assert final.error is not None and "限流等待超过上限" in final.error
+    assert sleep.calls == []

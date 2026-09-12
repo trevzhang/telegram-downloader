@@ -23,6 +23,9 @@ class ChannelAccessError(RuntimeError):
     """频道无法访问，消息可直接回复给用户。"""
 
 
+NOT_A_MEMBER_MESSAGE = "无法解析频道，请确认账号已加入该频道"
+
+
 def _chat_from_join_result(result: Any) -> Any:
     """ImportChatInviteRequest 返回 ChatInviteJoinResultOk(.updates.chats) 或 WebView（无 chats）。"""
     updates = getattr(result, "updates", result)
@@ -33,7 +36,7 @@ def _chat_from_join_result(result: Any) -> Any:
 
 
 async def _chat_from_invite_check(client: Any, invite_hash: str) -> Any:
-    """已是成员时用 CheckChatInviteRequest 取频道；ChatInvite/ChatInvitePeek 没有 .chat。"""
+    """已是成员时用 CheckChatInviteRequest 取频道；返回 ChatInviteAlready/ChatInvitePeek 才有 .chat，ChatInvite 没有。"""
     chat = getattr(await client(CheckChatInviteRequest(invite_hash)), "chat", None)
     if chat is None:
         raise ChannelAccessError("无法获取邀请链接对应的频道")
@@ -51,12 +54,26 @@ async def _join_by_invite(client: Any, invite_hash: str) -> Any:
         raise ChannelAccessError("邀请链接无效或已过期") from exc
 
 
+async def _entity_by_channel_id(client: Any, channel_id: int) -> Any:
+    """新 session 的实体缓存为空时 get_entity 会抛 ValueError；拉一次会话列表预热缓存后重试。"""
+    peer = PeerChannel(channel_id)
+    try:
+        return await client.get_entity(peer)
+    except ValueError:
+        log.info("实体缓存未命中，拉取会话列表后重试: %s", channel_id)
+    await client.get_dialogs()
+    try:
+        return await client.get_entity(peer)
+    except ValueError as exc:
+        raise ChannelAccessError(NOT_A_MEMBER_MESSAGE) from exc
+
+
 async def resolve_channel(client: Any, ref: ChannelRef) -> Any:
     try:
         if ref.invite_hash:
             return await _join_by_invite(client, ref.invite_hash)
         if ref.channel_id is not None:
-            return await client.get_entity(PeerChannel(ref.channel_id))
+            return await _entity_by_channel_id(client, ref.channel_id)
         return await client.get_entity(ref.username)
     except (UsernameInvalidError, UsernameNotOccupiedError) as exc:
         raise ChannelAccessError("频道不存在") from exc

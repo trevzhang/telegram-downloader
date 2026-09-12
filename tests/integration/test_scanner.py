@@ -193,3 +193,19 @@ async def test_resolve_value_error_maps_to_access_error() -> None:
     client = FakeClient(entity_error=ValueError("no such"))
     with pytest.raises(ChannelAccessError, match="无法解析频道"):
         await resolve_channel(client, ChannelRef(username="c"))
+
+
+async def test_resolve_channel_id_warms_dialogs_then_succeeds() -> None:
+    """新 session 实体缓存为空时 get_entity 抛 ValueError，拉一次会话列表后重试应成功。"""
+    entity = FakeEntity(id=123)
+    client = FakeClient(entity=entity, entity_error=ValueError("cold cache"), dialogs_unlock=True)
+    assert await resolve_channel(client, ChannelRef(channel_id=123)) is entity
+    assert client.dialogs_calls == 1
+    assert client.entity_calls == [PeerChannel(123), PeerChannel(123)]
+
+
+async def test_resolve_channel_id_persistent_value_error_raises_access_error() -> None:
+    client = FakeClient(entity_error=ValueError("still cold"))
+    with pytest.raises(ChannelAccessError, match="已加入该频道"):
+        await resolve_channel(client, ChannelRef(channel_id=123))
+    assert client.dialogs_calls == 1

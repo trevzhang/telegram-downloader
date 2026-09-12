@@ -8,10 +8,10 @@ import asyncio
 import logging
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable, TypeVar
 
 from tgdl.bot.notifier import Notifier
-from tgdl.downloader import download_all
+from tgdl.downloader import FLOOD_ERRORS, FLOOD_WAIT_MARGIN_SECONDS, MAX_FLOOD_WAIT_TOTAL_SECONDS, download_all
 from tgdl.filters import FilterError, build_filter
 from tgdl.models import FileResult, TaskState, TaskStatus
 from tgdl.paths import channel_dir_name
@@ -22,8 +22,12 @@ from tgdl.scanner import ChannelAccessError, resolve_channel, scan
 log = logging.getLogger(__name__)
 
 Publish = Callable[[TaskState], None]
+SleepFn = Callable[[float], Awaitable[None]]
+FloodNotify = Callable[[int], Awaitable[None]]
+T = TypeVar("T")
 
 UNKNOWN_ENTITY_ID = "?"
+FLOOD_CAP_MESSAGE = "限流等待超过上限，请稍后重试"
 
 
 @dataclass(frozen=True)
@@ -58,6 +62,22 @@ class _CollectingTracker(ProgressTracker):
         super().on_file_done(result)
 
 
+async def _with_flood_retry(coro_factory: Callable[[], Awaitable[T]], notify: FloodNotify, sleep: SleepFn) -> T:
+    """扫描阶段的限流：通知、等待后重试；累计等待超过上限则抛 ChannelAccessError 让任务明确失败。"""
+    waited = 0
+    while True:
+        try:
+            return await coro_factory()
+        except FLOOD_ERRORS as exc:
+            waited += exc.seconds
+            if waited > MAX_FLOOD_WAIT_TOTAL_SECONDS:
+                log.error("扫描阶段限流 %d 秒，累计 %d 秒超过上限", exc.seconds, waited)
+                raise ChannelAccessError(FLOOD_CAP_MESSAGE) from exc
+            log.warning("扫描阶段限流 %d 秒，等待后重试", exc.seconds)
+            await notify(exc.seconds)
+            await sleep(exc.seconds + FLOOD_WAIT_MARGIN_SECONDS)
+
+
 def display_title(entity: Any) -> str:
     username = getattr(entity, "username", None)
     if username:
@@ -66,10 +86,12 @@ def display_title(entity: Any) -> str:
 
 
 class TaskWorker:
-    def __init__(self, user_client: Any, notifier: Notifier, config: WorkerConfig) -> None:
+    def __init__(self, user_client: Any, notifier: Notifier, config: WorkerConfig, *,
+                 sleep: SleepFn = asyncio.sleep) -> None:
         self._client = user_client
         self._notifier = notifier
         self._config = config
+        self._sleep = sleep
         self._tracker: _CollectingTracker | None = None
         self._overview: _Overview | None = None
 
@@ -98,11 +120,12 @@ class TaskWorker:
     async def _run(self, state: TaskState, publish: Publish) -> TaskState:
         spec = state.spec
         await self._notify(f"🔍 任务 #{state.task_id} 开始扫描 {spec.raw_link}")
-        entity = await resolve_channel(self._client, spec.link)
+        entity = await self._retry_on_flood(state.task_id, lambda: resolve_channel(self._client, spec.link))
         state = replace(state, status=TaskStatus.SCANNING, channel_title=display_title(entity))
         publish(state)
 
-        items = await scan(self._client, entity, spec, build_filter(spec))
+        media_filter = build_filter(spec)
+        items = await self._retry_on_flood(state.task_id, lambda: scan(self._client, entity, spec, media_filter))
         if not items:
             await self._notify(f"ℹ️ 任务 #{state.task_id} 没有匹配的媒体")
             return replace(state, status=TaskStatus.DONE)
@@ -118,6 +141,12 @@ class TaskWorker:
         final = replace(state, status=TaskStatus.DONE, results=results)
         await self._finalize_message(message_id, render_summary(final))
         return final
+
+    async def _retry_on_flood(self, task_id: int, coro_factory: Callable[[], Awaitable[T]]) -> T:
+        async def notify(seconds: int) -> None:
+            await self._notify(f"⏳ 任务 #{task_id} 限流，等待 {seconds} 秒后重试")
+
+        return await _with_flood_retry(coro_factory, notify, self._sleep)
 
     async def _download_with_progress(
         self, state: TaskState, entity: Any, message_id: int | None,
