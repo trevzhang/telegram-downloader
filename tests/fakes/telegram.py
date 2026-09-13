@@ -119,10 +119,17 @@ class FakeNotifier:
     def __init__(self) -> None:
         self.sent: list[str] = []
         self.edits: list[tuple[int, str]] = []
+        self.deleted: list[int] = []
+        self.buttons: dict[int, tuple[tuple[str, str], ...] | None] = {}  # 最近一次 send/edit 附带的按钮
 
-    async def send(self, text: str) -> int:
+    async def send(self, text: str, buttons: tuple[tuple[str, str], ...] | None = None) -> int:
         self.sent.append(text)
+        self.buttons[len(self.sent)] = buttons
         return len(self.sent)
 
-    async def edit(self, message_id: int, text: str) -> None:
+    async def edit(self, message_id: int, text: str, buttons: tuple[tuple[str, str], ...] | None = None) -> None:
         self.edits.append((message_id, text))
+        self.buttons[message_id] = buttons
+
+    async def delete(self, message_id: int) -> None:
+        self.deleted.append(message_id)

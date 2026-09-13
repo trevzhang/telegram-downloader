@@ -16,9 +16,13 @@ Publish = Callable[[TaskState], None]
 Runner = Callable[[TaskState, Publish], Coroutine[Any, Any, TaskState]]
 
 
+OnChange = Callable[[TaskState], None]
+
+
 class TaskQueue:
-    def __init__(self, runner: Runner) -> None:
+    def __init__(self, runner: Runner, on_change: OnChange | None = None) -> None:
         self._runner = runner
+        self._on_change = on_change  # 任务状态每次变化时同步回调（如唤醒看板刷新）
         self._pending: asyncio.Queue[int] = asyncio.Queue()
         self._states: dict[int, TaskState] = {}
         self._next_id = 1
@@ -41,6 +45,11 @@ class TaskQueue:
 
     def current(self) -> TaskState | None:
         return self._states.get(self._current_id) if self._current_id is not None else None
+
+    def latest_finished(self) -> TaskState | None:
+        """最近一个已结束（完成/取消/失败）的任务，用于看板展示上一个结果。"""
+        finished = [s for s in self._states.values() if s.status not in ACTIVE_STATUSES]
+        return max(finished, key=lambda s: s.task_id) if finished else None
 
     def cancel(self, task_id: int) -> bool:
         state = self._states.get(task_id)
@@ -79,6 +88,8 @@ class TaskQueue:
 
     def _set(self, state: TaskState) -> None:
         self._states = {**self._states, state.task_id: state}
+        if self._on_change is not None:
+            self._on_change(state)
 
 
 def _normalise_final(state: TaskState) -> TaskState:
