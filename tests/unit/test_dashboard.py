@@ -164,3 +164,15 @@ async def test_run_loop_wakes_immediately_on_request() -> None:
     with pytest.raises(asyncio.CancelledError):
         await task
     assert len(d.notifier.edits) == 1
+
+
+async def test_show_moves_dashboard_to_bottom_and_concurrent_show_is_serialized() -> None:
+    class _Slow(FakeNotifier):
+        async def send(self, text: str, buttons: object = None) -> int:
+            await asyncio.sleep(0.01)
+            return await super().send(text, buttons)
+
+    d = _Dash(_Slow())
+    await d.dash.refresh()
+    await asyncio.gather(d.dash.show(), d.dash.refresh(force=True))
+    assert d.notifier.deleted == [1] and len(d.notifier.sent) == 2 and d.dash.message_id == 2

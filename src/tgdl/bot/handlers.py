@@ -26,10 +26,11 @@ BUTTON_CANCEL = "cancel"
 @dataclass(frozen=True)
 class Reply:
     text: str | None
-    refresh_dashboard: bool = False  # 原地刷新看板；看板不存在时会新发一条
+    move_dashboard: bool = False  # 命令处理后把看板移到聊天底部（删旧发新）
 
 
 class DashboardLike(Protocol):
+    async def show(self) -> None: ...
     async def refresh(self, force: bool = False) -> None: ...
     async def set_view(self, view: str) -> None: ...
 
@@ -43,11 +44,11 @@ class BotHandlers:
         try:
             name, args = split_command(text)
             if name == "/dl":
-                return Reply(self._dl(args), refresh_dashboard=True)
-            if name in ("/tasks", "/status"):
-                return Reply(None, refresh_dashboard=True)
+                return Reply(self._dl(args), move_dashboard=True)
+            if name == "/tasks":
+                return Reply(None, move_dashboard=True)
             if name == "/cancel":
-                return Reply(self._cancel(parse_cancel(args)), refresh_dashboard=True)
+                return Reply(self._cancel(parse_cancel(args)), move_dashboard=True)
             if name in ("/help", "/start"):
                 return Reply(HELP_TEXT)
             return Reply("未知命令，发送 /help 查看用法")
@@ -80,8 +81,8 @@ class BotHandlers:
                 reply = Reply(INTERNAL_ERROR_REPLY)
             if reply.text is not None:
                 await event.reply(reply.text, parse_mode=None)
-            if reply.refresh_dashboard:
-                await self._dashboard.refresh(force=True)
+            if reply.move_dashboard:
+                await self._dashboard.show()
 
         @bot_client.on(callback_builder)
         async def _on_button(event: Any) -> None:

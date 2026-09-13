@@ -145,6 +145,11 @@ class Dashboard:
             self._view = view
         await self.refresh(force=True)
 
+    async def show(self) -> None:
+        """把看板移到聊天底部：删除旧消息并重新发送。"""
+        async with self._lock:
+            await self._send(render_dashboard(self._data(), self._view))
+
     async def refresh(self, force: bool = False) -> None:
         """原地编辑看板；文本未变化则不编辑。没有看板或编辑失败（如消息被删）时重新发送一条。"""
         async with self._lock:

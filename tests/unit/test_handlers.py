@@ -14,6 +14,9 @@ class _FakeDashboard:
     def __init__(self) -> None:
         self.calls: list[str] = []
 
+    async def show(self) -> None:
+        self.calls.append("show")
+
     async def refresh(self, force: bool = False) -> None:
         self.calls.append("refresh-force" if force else "refresh")
 
@@ -42,7 +45,7 @@ async def test_dl_submits_task_and_shows_dashboard() -> None:
     handlers, queue, _ = _handlers()
     reply = await handlers.handle("/dl https://t.me/chana --regex 4k")
     assert reply.text is not None and "任务 #1" in reply.text and "已加入队列" in reply.text
-    assert reply.refresh_dashboard and queue.get(1) is not None
+    assert reply.move_dashboard and queue.get(1) is not None
 
 
 async def test_dl_reports_tasks_ahead() -> None:
@@ -56,19 +59,19 @@ async def test_dl_error_returns_usage_hint_without_dashboard() -> None:
     handlers, _, _ = _handlers()
     reply = await handlers.handle("/dl nope")
     assert (reply.text or "").startswith("❌") and "/help" in (reply.text or "")
-    assert not reply.refresh_dashboard
+    assert not reply.move_dashboard
 
 
-async def test_status_and_tasks_only_refresh_dashboard() -> None:
+async def test_tasks_only_moves_dashboard_and_status_is_gone() -> None:
     handlers, _, _ = _handlers()
-    for command in ("/status", "/tasks"):
-        assert await handlers.handle(command) == Reply(None, refresh_dashboard=True)
+    assert await handlers.handle("/tasks") == Reply(None, move_dashboard=True)
+    assert "未知命令" in ((await handlers.handle("/status")).text or "")
 
 
 async def test_cancel_reports_result_and_refreshes_dashboard() -> None:
     handlers, queue, _ = _handlers()
     missing = await handlers.handle("/cancel 9")
-    assert "不存在" in (missing.text or "") and missing.refresh_dashboard
+    assert "不存在" in (missing.text or "") and missing.move_dashboard
     await handlers.handle("/dl https://t.me/chana")
     done = await handlers.handle("/cancel 1")
     assert "已取消" in (done.text or "") and queue.get(1).status is TaskStatus.CANCELLED
@@ -139,12 +142,12 @@ async def test_command_handler_replies_without_markdown_and_drives_dashboard() -
     event = _FakeEvent("/dl https://t.me/chana")
     await on_command(event)
     assert event.replies[0][1] is None and "任务 #1" in event.replies[0][0]
-    assert dashboard.calls == ["refresh-force"]
-    status = _FakeEvent("/status")
-    await on_command(status)
-    assert status.replies == [] and dashboard.calls == ["refresh-force"] * 2
+    assert dashboard.calls == ["show"]
+    tasks = _FakeEvent("/tasks")
+    await on_command(tasks)
+    assert tasks.replies == [] and dashboard.calls == ["show", "show"]
     await on_command(_FakeEvent("/help"))
-    assert dashboard.calls == ["refresh-force"] * 2
+    assert dashboard.calls == ["show", "show"]
 
 
 async def test_command_handler_reports_internal_error(monkeypatch: pytest.MonkeyPatch) -> None:

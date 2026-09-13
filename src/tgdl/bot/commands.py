@@ -24,8 +24,7 @@ HELP_TEXT = """📖 用法
                     结束留空表示到最后一条，如 --ids 100-
   --type video|photo|all  媒体类型，默认 all
 
-/status           显示看板（当前进度、排队列表、上一个结果），自动刷新
-/tasks            同 /status
+/tasks            显示看板（当前进度、队列、历史），自动刷新
 /cancel <任务ID>   取消任务
 /help             显示本帮助
 
