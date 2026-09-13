@@ -229,3 +229,29 @@ async def test_disconnect_quietly_survives_hang_and_error(caplog: pytest.LogCapt
         await disconnect_quietly(_Hang(), "user", timeout=0.01)  # type: ignore[arg-type]
         await disconnect_quietly(_Boom(), "bot", timeout=0.01)  # type: ignore[arg-type]
     assert caplog.text.count("断开") == 2
+
+
+async def test_dashboard_data_collects_queue_and_worker_state(tmp_path: Path) -> None:
+    from tests.fakes.telegram import FakeNotifier
+    from tgdl.main import dashboard_data
+    from tgdl.models import ChannelRef, TaskSpec
+    from tgdl.task_queue import TaskQueue
+    from tgdl.worker import TaskWorker, WorkerConfig
+
+    worker = TaskWorker(object(), FakeNotifier(), WorkerConfig(download_dir=tmp_path, concurrency=1, max_retries=0))
+    queue = TaskQueue(worker.run)
+    queue.submit(TaskSpec(link=ChannelRef(username="chana"), raw_link="https://t.me/chana"))
+    data = dashboard_data(queue, worker)
+    assert data.current is None and len(data.active) == 1
+    assert data.snapshot is None and data.note is None and data.last_finished is None
+
+
+async def test_register_menu_quietly_tolerates_failure(caplog: pytest.LogCaptureFixture) -> None:
+    from tgdl.main import register_menu_quietly
+
+    async def broken_bot(request: object) -> None:
+        raise ConnectionError("offline")
+
+    with caplog.at_level("WARNING"):
+        await register_menu_quietly(broken_bot)
+    assert "命令菜单" in caplog.text

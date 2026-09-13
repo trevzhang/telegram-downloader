@@ -22,7 +22,7 @@ def _client(n: int = 2, **kw: object) -> FakeClient:
 
 
 def _worker(client: FakeClient, tmp_path: Path, notifier: FakeNotifier, **kw: object) -> TaskWorker:
-    config = WorkerConfig(download_dir=tmp_path, concurrency=2, max_retries=0, progress_interval=0.01)
+    config = WorkerConfig(download_dir=tmp_path, concurrency=2, max_retries=0)
     return TaskWorker(client, notifier, config, **kw)  # type: ignore[arg-type]
 
 
@@ -40,8 +40,8 @@ async def test_happy_path_downloads_and_reports(tmp_path: Path) -> None:
     assert final.channel_title == "@mychan"
     assert [s.status for s in published] == [TaskStatus.SCANNING, TaskStatus.DOWNLOADING]
     assert (tmp_path / "My Chan" / "2026_01" / "2_v.mp4").exists()
-    assert any("共 3 个文件" in text for text in notifier.sent)
-    assert notifier.edits and "成功：3" in notifier.edits[-1][1]
+    assert notifier.edits == []  # 进度只在看板上，worker 不再编辑任何消息
+    assert len(notifier.sent) == 1 and "成功：3" in notifier.sent[0] and "共 3 个" in notifier.sent[0]
 
 
 async def test_no_items_finishes_with_message(tmp_path: Path) -> None:
@@ -72,7 +72,7 @@ async def test_current_snapshot_available_during_download(tmp_path: Path) -> Non
     assert worker.current_snapshot() is None
 
 
-async def test_cancel_finalizes_overview_and_reraises(tmp_path: Path) -> None:
+async def test_cancel_sends_partial_summary_and_reraises(tmp_path: Path) -> None:
     notifier = FakeNotifier()
     worker = _worker(_client(2, delay=0.05), tmp_path, notifier)
     task = asyncio.create_task(worker.run(_state(), lambda s: None))
@@ -80,14 +80,12 @@ async def test_cancel_finalizes_overview_and_reraises(tmp_path: Path) -> None:
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
-    overview_id = notifier.sent.index(next(t for t in notifier.sent if "开始下载" in t)) + 1
-    last_id, last_text = notifier.edits[-1]
-    assert last_id == overview_id and "已取消" in last_text and "共 2 个" in last_text
-    assert not any("已取消" in text for text in notifier.sent)
+    assert len(notifier.sent) == 1 and "已取消" in notifier.sent[0] and "共 2 个" in notifier.sent[0]
+    assert notifier.edits == []
     assert not list(tmp_path.rglob("*.part"))
 
 
-async def test_cancel_before_overview_sends_notice(tmp_path: Path) -> None:
+async def test_cancel_before_download_sends_notice(tmp_path: Path) -> None:
     notifier = FakeNotifier()
     client = _client(2)
 
@@ -112,20 +110,7 @@ async def test_unexpected_error_notifies_then_propagates(tmp_path: Path) -> None
     assert any("失败" in text and "boom" in text for text in notifier.sent)
 
 
-class _BrokenEditNotifier(FakeNotifier):
-    async def edit(self, message_id: int, text: str) -> None:
-        raise RPCError(request=None, message="gone")
-
-
-async def test_edit_failure_falls_back_to_send_and_keeps_result(tmp_path: Path) -> None:
-    notifier = _BrokenEditNotifier()
-    final = await _worker(_client(3), tmp_path, notifier).run(_state(), lambda s: None)
-    assert final.status is TaskStatus.DONE
-    assert [r.status for r in final.results] == [FileStatus.DONE] * 3
-    assert any("成功：3" in text for text in notifier.sent)
-
-
-async def test_download_error_finalizes_overview_and_propagates(
+async def test_download_error_sends_failure_summary_and_propagates(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     async def boom(*args: object, **kwargs: object) -> tuple:
@@ -135,27 +120,33 @@ async def test_download_error_finalizes_overview_and_propagates(
     notifier = FakeNotifier()
     with pytest.raises(RuntimeError):
         await _worker(_client(2), tmp_path, notifier).run(_state(), lambda s: None)
-    overview_id = notifier.sent.index(next(t for t in notifier.sent if "开始下载" in t)) + 1
-    last_id, last_text = notifier.edits[-1]
-    assert last_id == overview_id and "失败" in last_text and "kaboom" in last_text
-    assert not any("失败" in text for text in notifier.sent)
+    assert len(notifier.sent) == 1 and "失败" in notifier.sent[0] and "kaboom" in notifier.sent[0]
+    assert notifier.edits == []
 
 
 class _SleepSpy:
-    def __init__(self) -> None:
+    def __init__(self, worker_ref: list[TaskWorker] | None = None) -> None:
         self.calls: list[float] = []
+        self.notes: list[str | None] = []
+        self._worker_ref = worker_ref if worker_ref is not None else []
 
     async def __call__(self, seconds: float) -> None:
         self.calls.append(seconds)
+        self.notes.extend(w.current_note() for w in self._worker_ref)
 
 
 async def test_flood_wait_during_resolve_waits_and_retries(tmp_path: Path) -> None:
     notifier = FakeNotifier()
-    sleep = _SleepSpy()
+    ref: list[TaskWorker] = []
+    sleep = _SleepSpy(ref)
     client = _client(2, entity_errors=[FloodWaitError(request=None, capture=3)])
-    final = await _worker(client, tmp_path, notifier, sleep=sleep).run(_state(), lambda s: None)
+    worker = _worker(client, tmp_path, notifier, sleep=sleep)
+    ref.append(worker)
+    final = await worker.run(_state(), lambda s: None)
     assert final.status is TaskStatus.DONE and len(final.results) == 2
-    assert any("限流" in text and "3 秒" in text for text in notifier.sent)
+    assert sleep.notes and "限流" in (sleep.notes[0] or "") and "3 秒" in (sleep.notes[0] or "")
+    assert worker.current_note() is None  # 等待结束后提示清除
+    assert not any("限流" in text for text in notifier.sent)  # 限流提示只在看板上，不再单发消息
     assert sleep.calls and sleep.calls[0] >= 3
 
 
@@ -192,9 +183,7 @@ class _HangingNotifier(FakeNotifier):
 async def test_hanging_notifier_does_not_block_task(tmp_path: Path) -> None:
     client = _client(1)
     notifier = _HangingNotifier()
-    config = WorkerConfig(
-        download_dir=tmp_path, concurrency=1, max_retries=0, progress_interval=0.01, notify_timeout=0.01
-    )
+    config = WorkerConfig(download_dir=tmp_path, concurrency=1, max_retries=0, notify_timeout=0.01)
     worker = TaskWorker(client, notifier, config)  # type: ignore[arg-type]
     final = await asyncio.wait_for(worker.run(_state(), lambda s: None), timeout=2)
     assert final.status == TaskStatus.DONE

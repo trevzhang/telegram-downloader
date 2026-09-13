@@ -1,6 +1,7 @@
 """单个任务的完整执行流程：解析频道 → 扫描 → 并发下载 → 汇总。
 
-通知（send/edit）只是尽力而为：任何发送失败都只记录警告，绝不改变任务结果。
+进度不再由 worker 发消息，而是通过 current_snapshot()/current_note() 暴露给看板；
+worker 只在任务结束时发一条静态汇总。通知只是尽力而为：发送失败只记录警告，绝不改变任务结果。
 """
 
 from __future__ import annotations
@@ -17,8 +18,7 @@ from tgdl.downloader import FLOOD_ERRORS, FLOOD_WAIT_MARGIN_SECONDS, MAX_FLOOD_W
 from tgdl.filters import FilterError, build_filter
 from tgdl.models import FileResult, TaskState, TaskStatus
 from tgdl.paths import DownloadDirMissingError, channel_dir_name, ensure_download_root
-from tgdl.progress import ProgressSnapshot, ProgressTracker, format_bytes, render_progress, render_summary
-from tgdl.reporter import ProgressReporter
+from tgdl.progress import ProgressSnapshot, ProgressTracker, render_summary
 from tgdl.scanner import ChannelAccessError, resolve_channel, scan
 
 log = logging.getLogger(__name__)
@@ -38,16 +38,7 @@ class WorkerConfig:
     download_dir: Path
     concurrency: int
     max_retries: int
-    progress_interval: float
     notify_timeout: float = NOTIFY_TIMEOUT_SECONDS  # 单次 Bot 通知的最长等待，防止网络卡死阻塞任务与关停
-
-
-@dataclass(frozen=True)
-class _Overview:
-    """概览消息的 ID（发送失败时为 None）及发送时的任务状态，用于任务中止时生成汇总。"""
-
-    message_id: int | None
-    state: TaskState
 
 
 class _CollectingTracker(ProgressTracker):
@@ -98,10 +89,15 @@ class TaskWorker:
         self._config = config
         self._sleep = sleep
         self._tracker: _CollectingTracker | None = None
-        self._overview: _Overview | None = None
+        self._downloading: TaskState | None = None  # 进入下载阶段的任务状态，用于中止时生成部分汇总
+        self._note: str | None = None
 
     def current_snapshot(self) -> ProgressSnapshot | None:
         return self._tracker.snapshot if self._tracker else None
+
+    def current_note(self) -> str | None:
+        """看板上的临时提示（如扫描阶段限流等待），没有时为 None。"""
+        return self._note
 
     async def run(self, state: TaskState, publish: Publish) -> TaskState:
         try:
@@ -110,22 +106,22 @@ class TaskWorker:
             await self._notify(f"❌ 任务 #{state.task_id} 失败：{exc}")
             return replace(state, status=TaskStatus.FAILED, error=str(exc))
         except asyncio.CancelledError:
-            if not await self._finalize_overview(TaskStatus.CANCELLED, None):
+            if not await self._send_partial_summary(TaskStatus.CANCELLED, None):
                 await self._notify(f"🚫 任务 #{state.task_id} 已取消")
             raise
         except Exception as exc:  # 其余异常交给队列记录并标记失败，但先告知 OWNER
             error = f"{type(exc).__name__}: {exc}"
-            if not await self._finalize_overview(TaskStatus.FAILED, error):
+            if not await self._send_partial_summary(TaskStatus.FAILED, error):
                 await self._notify(f"❌ 任务 #{state.task_id} 失败：{error}")
             raise
         finally:
             self._tracker = None
-            self._overview = None
+            self._downloading = None
+            self._note = None
 
     async def _run(self, state: TaskState, publish: Publish) -> TaskState:
         spec = state.spec
         ensure_download_root(self._config.download_dir)
-        await self._notify(f"🔍 任务 #{state.task_id} 开始扫描 {spec.raw_link}")
         entity = await self._retry_on_flood(state.task_id, lambda: resolve_channel(self._client, spec.link))
         state = replace(state, status=TaskStatus.SCANNING, channel_title=display_title(entity))
         publish(state)
@@ -133,83 +129,51 @@ class TaskWorker:
         media_filter = build_filter(spec)
         items = await self._retry_on_flood(state.task_id, lambda: scan(self._client, entity, spec, media_filter))
         if not items:
-            await self._notify(f"ℹ️ 任务 #{state.task_id} 没有匹配的媒体")
+            await self._notify(f"ℹ️ 任务 #{state.task_id} {state.channel_title} 没有匹配的媒体")
             return replace(state, status=TaskStatus.DONE)
         state = replace(state, status=TaskStatus.DOWNLOADING, items=items)
         publish(state)
+        self._downloading = state
 
-        total = format_bytes(sum(i.size for i in items))
-        message_id = await self._try_send(
-            f"📋 任务 #{state.task_id}  {state.channel_title}\n共 {len(items)} 个文件，总大小 {total}，开始下载…"
-        )
-        self._overview = _Overview(message_id=message_id, state=state)
-        results = await self._download_with_progress(state, entity, message_id)
+        results = await self._download(state, entity)
         final = replace(state, status=TaskStatus.DONE, results=results)
-        await self._finalize_message(message_id, render_summary(final))
+        await self._notify(render_summary(final))
         return final
 
     async def _retry_on_flood(self, task_id: int, coro_factory: Callable[[], Awaitable[T]]) -> T:
         async def notify(seconds: int) -> None:
-            await self._notify(f"⏳ 任务 #{task_id} 限流，等待 {seconds} 秒后重试")
+            self._note = f"⏳ 任务 #{task_id} 限流，等待 {seconds} 秒后重试"
 
-        return await _with_flood_retry(coro_factory, notify, self._sleep)
+        try:
+            return await _with_flood_retry(coro_factory, notify, self._sleep)
+        finally:
+            self._note = None
 
-    async def _download_with_progress(
-        self,
-        state: TaskState,
-        entity: Any,
-        message_id: int | None,
-    ) -> tuple[FileResult, ...]:
+    async def _download(self, state: TaskState, entity: Any) -> tuple[FileResult, ...]:
         tracker = _CollectingTracker(state.task_id, state.channel_title, state.items)
         self._tracker = tracker
-        reporter = ProgressReporter(lambda text: self._edit_progress(message_id, text), self._config.progress_interval)
-        stop = asyncio.Event()
-        report_task = asyncio.create_task(reporter.run(lambda: render_progress(tracker.snapshot), stop))
-        try:
-            return await download_all(
-                self._client,
-                entity,
-                state.items,
-                self._config.download_dir,
-                channel_dir_name(entity),
-                tracker,
-                concurrency=self._config.concurrency,
-                max_retries=self._config.max_retries,
-            )
-        finally:
-            stop.set()
-            await report_task
+        return await download_all(
+            self._client,
+            entity,
+            state.items,
+            self._config.download_dir,
+            channel_dir_name(entity),
+            tracker,
+            concurrency=self._config.concurrency,
+            max_retries=self._config.max_retries,
+        )
 
-    async def _edit_progress(self, message_id: int | None, text: str) -> None:
-        """概览消息发送失败时没有可编辑的目标，进度刷新直接跳过；其余失败由 Reporter 记录。"""
-        if message_id is not None:
-            await self._notifier.edit(message_id, text)
-
-    async def _finalize_overview(self, status: TaskStatus, error: str | None) -> bool:
-        """任务中止时把概览消息改写为汇总（含已完成文件）；没有概览消息时返回 False。"""
-        if self._overview is None:
+    async def _send_partial_summary(self, status: TaskStatus, error: str | None) -> bool:
+        """下载阶段中止时发送含已完成文件的汇总；尚未进入下载阶段时返回 False。"""
+        if self._downloading is None:
             return False
         results = self._tracker.results if self._tracker else ()
-        final = replace(self._overview.state, status=status, results=results, error=error)
-        await self._finalize_message(self._overview.message_id, render_summary(final))
+        final = replace(self._downloading, status=status, results=results, error=error)
+        await self._notify(render_summary(final))
         return True
 
-    async def _try_send(self, text: str) -> int | None:
+    async def _notify(self, text: str) -> None:
         try:
-            return await asyncio.wait_for(self._notifier.send(text), self._config.notify_timeout)
+            await asyncio.wait_for(self._notifier.send(text), self._config.notify_timeout)
         except Exception as exc:
             log.warning("发送通知失败，忽略：%s", exc)
-            return None
-
-    async def _notify(self, text: str) -> None:
-        await self._try_send(text)
-
-    async def _finalize_message(self, message_id: int | None, text: str) -> None:
-        """优先编辑已有消息；消息不存在或编辑失败时改为重新发送，失败同样只记录警告。"""
-        if message_id is not None:
-            try:
-                await asyncio.wait_for(self._notifier.edit(message_id, text), self._config.notify_timeout)
-                return
-            except Exception as exc:
-                log.warning("编辑消息 %s 失败，改为重新发送：%s", message_id, exc)
-        await self._notify(text)

@@ -12,9 +12,10 @@ from typing import Any
 
 from telethon import TelegramClient
 
+from tgdl.bot.dashboard import Dashboard, DashboardData, render_dashboard
 from tgdl.bot.handlers import BotHandlers
-from tgdl.bot.live import LiveMessages
-from tgdl.bot.notifier import Notifier, TelegramNotifier
+from tgdl.bot.menu import register_commands
+from tgdl.bot.notifier import TelegramNotifier
 from tgdl.config import ConfigError, Settings, load_settings
 from tgdl.logging_setup import LOG_DIR_NAME, setup_logging
 from tgdl.paths import cleanup_parts
@@ -25,7 +26,6 @@ log = logging.getLogger(__name__)
 
 USER_SESSION_NAME = "user"
 BOT_SESSION_NAME = "bot"
-STARTUP_MESSAGE = "✅ tgdl 已启动，发送 /help 查看用法"
 NON_TTY_LOGIN_MESSAGE = "首次登录需要在交互终端运行（输入手机号和验证码）"
 BOT_SESSION_MISMATCH_MESSAGE = "data/bot.session 属于另一个 Bot，请删除后重试"
 BOT_TOKEN_FORMAT_MESSAGE = "BOT_TOKEN 格式不正确，应形如 123456:ABC-DEF"
@@ -49,7 +49,6 @@ def build_worker_config(settings: Settings) -> WorkerConfig:
         download_dir=settings.download_dir,
         concurrency=settings.concurrency,
         max_retries=settings.max_retries,
-        progress_interval=settings.progress_interval,
     )
 
 
@@ -109,11 +108,22 @@ async def start_clients(user: TelegramClient, bot: TelegramClient, settings: Set
         raise ConfigError(BOT_SESSION_MISMATCH_MESSAGE)
 
 
-async def _send_startup_notice(notifier: Notifier) -> None:
+def dashboard_data(queue: TaskQueue, worker: TaskWorker) -> DashboardData:
+    """把队列与 worker 的当前状态收集为看板输入。"""
+    return DashboardData(
+        current=queue.current(),
+        active=queue.active(),
+        snapshot=worker.current_snapshot(),
+        note=worker.current_note(),
+        last_finished=queue.latest_finished(),
+    )
+
+
+async def register_menu_quietly(bot: Any) -> None:
     try:
-        await notifier.send(STARTUP_MESSAGE)
-    except Exception as exc:  # 通知失败不影响启动，常见原因是 OWNER 还没给 Bot 发过 /start
-        log.warning("启动通知发送失败（请先在 Telegram 打开 Bot 并发送 /start）：%s", exc)
+        await register_commands(bot)
+    except Exception as exc:  # 菜单只是便利功能，失败不影响运行
+        log.warning("注册 Bot 命令菜单失败，已忽略：%s", exc)
 
 
 def make_sigint_handler(main_task: asyncio.Task[Any], exit_fn: Callable[[int], Any] = os._exit) -> Callable[[], None]:
@@ -186,15 +196,18 @@ async def main_async(settings: Settings) -> None:
         log.info("用户与 Bot 客户端已登录，代理: %s", "已启用" if settings.proxy() else "直连")
         notifier = TelegramNotifier(bot, settings.owner_id)
         worker = TaskWorker(user, notifier, build_worker_config(settings))
-        queue = TaskQueue(worker.run)
-        live = LiveMessages(notifier, settings.progress_interval)
-        BotHandlers(queue, worker.current_snapshot, live).register(bot, settings.owner_id)
-        live_task = asyncio.create_task(live.run())
-        await _send_startup_notice(notifier)
+        dashboard = Dashboard(
+            notifier, lambda: render_dashboard(dashboard_data(queue, worker)), settings.progress_interval
+        )
+        queue = TaskQueue(worker.run, on_change=lambda _state: dashboard.request_refresh())
+        BotHandlers(queue, dashboard).register(bot, settings.owner_id)
+        await register_menu_quietly(bot)
+        await dashboard.show()  # 启动即发出看板，替代原来的启动通知
+        dashboard_task = asyncio.create_task(dashboard.run())
         try:
             await _run_until_first_done(queue.run_forever(), bot.run_until_disconnected())
         finally:
-            await _cancel(live_task)
+            await _cancel(dashboard_task)
     finally:
         await disconnect_quietly(user, "用户")
         await disconnect_quietly(bot, "Bot")
