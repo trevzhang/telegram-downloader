@@ -165,7 +165,8 @@ class ProgressTracker:
         return replace(self._snap, now=now, flood_wait_until=_unexpired(self._snap.flood_wait_until, now))
 
     def on_file_progress(self, message_id: int, name: str, current: int, total: int) -> None:
-        previous = next((f.current for f in self._snap.active if f.message_id == message_id), 0)
+        # 首个回调只建立基线（续传起点或首块），不计入传输量，避免续传时速度虚高
+        previous = next((f.current for f in self._snap.active if f.message_id == message_id), current)
         others = tuple(f for f in self._snap.active if f.message_id != message_id)
         entry = FileProgress(message_id=message_id, name=name, current=current, total=total)
         self._snap = replace(

@@ -82,7 +82,7 @@ async def test_cancel_sends_partial_summary_and_reraises(tmp_path: Path) -> None
         await task
     assert len(notifier.sent) == 1 and "已取消" in notifier.sent[0] and "共 2 个" in notifier.sent[0]
     assert notifier.edits == []
-    assert not list(tmp_path.rglob("*.part"))
+    assert list(tmp_path.rglob("*.part"))  # 取消时保留 .part 供续传
 
 
 async def test_cancel_before_download_sends_notice(tmp_path: Path) -> None:

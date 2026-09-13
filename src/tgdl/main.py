@@ -18,7 +18,6 @@ from tgdl.bot.menu import register_commands
 from tgdl.bot.notifier import TelegramNotifier
 from tgdl.config import ConfigError, Settings, load_settings
 from tgdl.logging_setup import LOG_DIR_NAME, setup_logging
-from tgdl.paths import cleanup_parts
 from tgdl.task_queue import TaskQueue
 from tgdl.worker import TaskWorker, WorkerConfig
 
@@ -183,9 +182,6 @@ async def main_async(settings: Settings) -> None:
     setup_logging(settings.data_dir / LOG_DIR_NAME)
     if not settings.download_dir.is_dir():
         log.warning("下载目录当前不存在，任务会失败直到它可用（NAS 未挂载？）：%s", settings.download_dir)
-    removed = cleanup_parts(settings.download_dir)
-    if removed:
-        log.info("清理残留 .part 文件 %d 个", removed)
 
     user, bot = build_clients(settings)
     main_task = asyncio.current_task()

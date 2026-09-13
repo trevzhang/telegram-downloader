@@ -5,8 +5,8 @@ from pathlib import Path
 import pytest
 from telethon.errors import FileIdInvalidError, FileReferenceExpiredError, FloodPremiumWaitError, FloodWaitError
 
-from tests.fakes.telegram import FakeClient, FakeFile, FakeMessage
-from tgdl.downloader import download_all, download_item
+from tests.fakes.telegram import FakeClient, FakeFile, FakeMessage, payload
+from tgdl.downloader import download_all, download_item, resume_offset
 from tgdl.models import FileStatus, MediaItem, MediaKind
 from tgdl.progress import ProgressTracker
 
@@ -73,7 +73,7 @@ async def test_retries_then_succeeds(tmp_path: Path) -> None:
     assert len(client.download_calls) == 3
 
 
-async def test_retries_exhausted_marks_failed_and_removes_part(tmp_path: Path) -> None:
+async def test_retries_exhausted_marks_failed_and_keeps_part(tmp_path: Path) -> None:
     msg, item = _pair(1)
     client = FakeClient(messages=(msg,), failures=[OSError("net")] * 5)
     result = await download_item(
@@ -89,7 +89,7 @@ async def test_retries_exhausted_marks_failed_and_removes_part(tmp_path: Path) -
     assert result.status is FileStatus.FAILED
     assert result.error is not None and "net" in result.error
     assert len(client.download_calls) == 3
-    assert not list(tmp_path.rglob("*.part"))
+    assert (tmp_path / "1.mp4.part").exists()  # 网络错误保留 .part 供下次续传
 
 
 @pytest.mark.parametrize("error_cls", FLOOD_ERRORS)
@@ -132,7 +132,7 @@ async def test_missing_message_fails_without_retry(tmp_path: Path) -> None:
     assert result.status is FileStatus.FAILED and client.download_calls == []
 
 
-async def test_cancel_removes_part(tmp_path: Path) -> None:
+async def test_cancel_keeps_part_for_resume(tmp_path: Path) -> None:
     msg, item = _pair(1, size=64)
     client = FakeClient(messages=(msg,), delay=0.01)
     task = asyncio.create_task(
@@ -146,7 +146,9 @@ async def test_cancel_removes_part(tmp_path: Path) -> None:
         await task
     except asyncio.CancelledError:
         pass
-    assert not list(tmp_path.rglob("*"))
+    part = tmp_path / "1.mp4.part"
+    assert part.exists() and 0 < part.stat().st_size < 64
+    assert not (tmp_path / "1.mp4").exists()
 
 
 async def test_download_all_respects_concurrency_and_updates_tracker(tmp_path: Path) -> None:
@@ -232,4 +234,69 @@ async def test_flood_wait_beyond_cap_fails_without_sleeping(tmp_path: Path, erro
     assert result.error is not None and "限流等待超过上限" in result.error
     assert all(s < 4000 for s in slept)
     assert len(client.download_calls) == 1
-    assert not list(tmp_path.rglob("*.part"))
+
+
+def test_resume_offset_aligns_and_rejects_oversized(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("tgdl.downloader.CHUNK_SIZE", 4)
+    part = tmp_path / "x.part"
+    assert resume_offset(part, 10) == 0
+    part.write_bytes(b"1" * 6)
+    assert resume_offset(part, 10) == 4
+    part.write_bytes(b"1" * 20)
+    assert resume_offset(part, 10) == 0
+    part.write_bytes(b"1" * 10)
+    assert resume_offset(part, 10) == 10
+
+
+async def _download(client: FakeClient, item: MediaItem, path: Path, progress: list[tuple[int, int]] | None = None):
+    return await download_item(
+        client,
+        object(),
+        item,
+        path,
+        on_progress=lambda c, t: progress.append((c, t)) if progress is not None else None,
+        on_flood_wait=lambda s: None,
+        max_retries=2,
+        sleep=_noop_sleep,
+    )
+
+
+async def test_resumes_from_existing_part(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("tgdl.downloader.CHUNK_SIZE", 4)
+    msg, item = _pair(1, size=10)
+    (tmp_path / "1.mp4.part").write_bytes(payload(10)[:6])
+    client = FakeClient(messages=(msg,))
+    progress: list[tuple[int, int]] = []
+    result = await _download(client, item, tmp_path / "1.mp4", progress)
+    assert result.status is FileStatus.DONE
+    assert (tmp_path / "1.mp4").read_bytes() == payload(10)
+    assert client.offsets == [4] and progress[0] == (4, 10) and progress[-1] == (10, 10)
+
+
+async def test_mid_download_failure_keeps_part_and_resumes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("tgdl.downloader.CHUNK_SIZE", 4)
+    msg, item = _pair(1, size=10)
+    client = FakeClient(messages=(msg,), failures=[OSError("net")], fail_after_chunks=1)
+    result = await _download(client, item, tmp_path / "1.mp4")
+    assert result.status is FileStatus.DONE
+    assert (tmp_path / "1.mp4").read_bytes() == payload(10)
+    assert client.offsets == [0, 4]
+
+
+async def test_oversized_part_restarts_from_zero(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("tgdl.downloader.CHUNK_SIZE", 4)
+    msg, item = _pair(1, size=10)
+    (tmp_path / "1.mp4.part").write_bytes(b"z" * 20)
+    client = FakeClient(messages=(msg,))
+    result = await _download(client, item, tmp_path / "1.mp4")
+    assert result.status is FileStatus.DONE and client.offsets == [0]
+    assert (tmp_path / "1.mp4").read_bytes() == payload(10)
+
+
+async def test_complete_part_is_renamed_without_downloading(tmp_path: Path) -> None:
+    msg, item = _pair(1, size=10)
+    (tmp_path / "1.mp4.part").write_bytes(payload(10))
+    client = FakeClient(messages=(msg,))
+    result = await _download(client, item, tmp_path / "1.mp4")
+    assert result.status is FileStatus.DONE and client.offsets == []
+    assert (tmp_path / "1.mp4").read_bytes() == payload(10) and not (tmp_path / "1.mp4.part").exists()

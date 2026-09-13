@@ -24,6 +24,7 @@ from tgdl.progress import ProgressTracker
 log = logging.getLogger(__name__)
 
 BACKOFF_BASE_SECONDS = 2.0
+CHUNK_SIZE = 512 * 1024  # Telethon 单次请求上限；续传偏移对齐到它可走最快的直连路径
 FLOOD_WAIT_MARGIN_SECONDS = 1
 MAX_FLOOD_WAIT_TOTAL_SECONDS = 3600  # 单个文件累计限流等待上限
 FLOOD_WAIT_CAP_ERROR = "限流等待超过上限"
@@ -91,11 +92,35 @@ async def _wait_flood(
     return replace(attempt, flood_waited=waited)
 
 
+def resume_offset(part: Path, size: int) -> int:
+    """已有 .part 可续传的字节数（对齐到 CHUNK_SIZE）；比目标还大说明已损坏，从头下载。"""
+    if not part.exists():
+        return 0
+    have = part.stat().st_size
+    if have > size:
+        return 0
+    if have == size:
+        return have  # 已完整，只差重命名
+    return have - have % CHUNK_SIZE
+
+
 async def _download_once(client: Any, entity: Any, item: MediaItem, part: Path, on_progress: ProgressFn) -> None:
     message = await client.get_messages(entity, ids=item.message_id)
     if message is None:
         raise MediaUnavailableError(f"消息 {item.message_id} 已不存在")
-    await client.download_media(message, file=str(part), progress_callback=on_progress)
+    offset = resume_offset(part, item.size)
+    with part.open("r+b" if part.exists() else "wb") as handle:
+        handle.truncate(offset)
+        handle.seek(offset)
+        current = offset
+        if current:
+            on_progress(current, item.size)
+        if current >= item.size:
+            return
+        async for chunk in client.iter_download(message, offset=offset, request_size=CHUNK_SIZE, file_size=item.size):
+            handle.write(chunk)
+            current += len(chunk)
+            on_progress(current, item.size)
 
 
 async def download_item(
@@ -120,10 +145,8 @@ async def download_item(
             part.replace(path)
             return FileResult(item=item, path=path, status=FileStatus.DONE)
         except asyncio.CancelledError:
-            part.unlink(missing_ok=True)
-            raise
+            raise  # 保留 .part 供下次续传
         except FLOOD_ERRORS as exc:
-            part.unlink(missing_ok=True)
             next_attempt = await _wait_flood(exc, attempt, item, on_flood_wait, sleep)
             if next_attempt is None:
                 return _failed(item, path, FLOOD_WAIT_CAP_ERROR)
@@ -132,7 +155,8 @@ async def download_item(
             part.unlink(missing_ok=True)
             return _failed(item, path, str(exc))
         except Exception as exc:  # 任何未知异常都不能逃出单文件下载，否则会拖垮整个任务
-            part.unlink(missing_ok=True)
+            if not _is_retryable(exc):
+                part.unlink(missing_ok=True)  # 永久性错误，.part 没有续传价值
             if not _is_retryable(exc) or attempt.retries >= max_retries:
                 _log_final_failure(exc, item)
                 return _failed(item, path, _describe(exc))

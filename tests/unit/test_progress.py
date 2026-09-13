@@ -132,6 +132,7 @@ def _tracker(clock: _Clock, *items: MediaItem) -> ProgressTracker:
 def test_speed_never_negative_after_active_file_fails() -> None:
     clock = _Clock()
     tracker = _tracker(clock, _item(1, size=100 * MB))
+    tracker.on_file_progress(1, "f.mp4", 0, 100 * MB)
     tracker.on_file_progress(1, "f.mp4", 50 * MB, 100 * MB)
     clock.now = 1.0
     tracker.on_file_done(FileResult(item=_item(1, size=100 * MB), path=Path("x"), status=FileStatus.FAILED, error="e"))
@@ -153,12 +154,20 @@ def test_skipped_file_does_not_inflate_speed() -> None:
 def test_retry_restart_counts_transferred_without_negative_sample() -> None:
     clock = _Clock()
     tracker = _tracker(clock, _item(1, size=100))
-    for now, current in ((0.0, 60), (1.0, 0), (2.0, 30)):
+    for now, current in ((0.0, 0), (0.5, 60), (1.0, 0), (2.0, 30)):
         clock.now = now
         tracker.on_file_progress(1, "f.mp4", current, 100)
         assert tracker.snapshot.speed >= 0
     assert tracker.snapshot.transferred == 90
     assert tracker.snapshot.done_bytes == 30
+
+
+def test_resume_baseline_is_not_counted_as_transferred() -> None:
+    clock = _Clock()
+    tracker = _tracker(clock, _item(1, size=100))
+    tracker.on_file_progress(1, "f.mp4", 70, 100)  # 续传起点
+    tracker.on_file_progress(1, "f.mp4", 80, 100)
+    assert tracker.snapshot.transferred == 10
 
 
 def test_flood_wait_survives_other_files_progress_and_expires() -> None:

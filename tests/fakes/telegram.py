@@ -9,6 +9,11 @@ from datetime import datetime
 from typing import Any
 
 
+def payload(size: int) -> bytes:
+    """位置相关的确定性内容，便于验证续传拼接是否正确。"""
+    return bytes(i % 251 for i in range(size))
+
+
 @dataclass(frozen=True)
 class FakeFile:
     name: str | None = None
@@ -52,6 +57,8 @@ class FakeClient:
     chunk: int = 4
     delay: float = 0.0
     download_calls: list[int] = field(default_factory=list)
+    offsets: list[int] = field(default_factory=list)  # 每次 iter_download 的起始偏移
+    fail_after_chunks: int | None = None  # 设置后，下一个 failures 在产出该数量的块之后抛出
     max_concurrent: int = 0
     _in_flight: int = 0
 
@@ -95,22 +102,25 @@ class FakeClient:
     async def get_messages(self, entity: Any, ids: int) -> FakeMessage | None:
         return next((m for m in self.messages if m.id == ids), None)
 
-    async def download_media(self, message: FakeMessage, file: str, progress_callback: Any = None) -> str:
-        self.download_calls.append(message.id)
+    async def iter_download(
+        self, file: FakeMessage, *, offset: int = 0, request_size: int = 0, file_size: int | None = None
+    ) -> AsyncIterator[bytes]:
+        """按块产出确定性负载；offset 用于续传。fail_after_chunks 让失败发生在下载中途。"""
+        self.download_calls.append(file.id)
+        self.offsets.append(offset)
         self._in_flight += 1
         self.max_concurrent = max(self.max_concurrent, self._in_flight)
         try:
-            if self.failures:
+            if self.failures and self.fail_after_chunks is None:
                 raise self.failures.pop(0)
-            assert message.file is not None
-            data = b"x" * message.file.size
-            with open(file, "wb") as handle:
-                for start in range(0, len(data), self.chunk):
-                    await asyncio.sleep(self.delay)
-                    handle.write(data[start : start + self.chunk])
-                    if progress_callback:
-                        progress_callback(min(start + self.chunk, len(data)), len(data))
-            return file
+            assert file.file is not None
+            data = payload(file.file.size)
+            for index, start in enumerate(range(offset, len(data), self.chunk)):
+                await asyncio.sleep(self.delay)
+                if self.fail_after_chunks is not None and index == self.fail_after_chunks and self.failures:
+                    self.fail_after_chunks = None
+                    raise self.failures.pop(0)
+                yield data[start : start + self.chunk]
         finally:
             self._in_flight -= 1
 

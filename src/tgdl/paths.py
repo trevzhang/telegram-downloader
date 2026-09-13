@@ -86,13 +86,3 @@ def ensure_download_root(root: Path) -> None:
     """下载根目录必须已存在；不自动创建，避免 NAS 掉线时把文件写到本机磁盘。"""
     if not root.is_dir():
         raise DownloadDirMissingError(f"{DOWNLOAD_DIR_MISSING_MESSAGE}{root}")
-
-
-def cleanup_parts(root: Path) -> int:
-    """删除残留的 .part 文件，返回删除数量。"""
-    if not root.exists():
-        return 0
-    parts = tuple(root.rglob(f"*{PART_SUFFIX}"))
-    for part in parts:
-        part.unlink(missing_ok=True)
-    return len(parts)
