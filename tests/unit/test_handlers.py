@@ -4,7 +4,8 @@ from typing import Any
 import pytest
 
 from tgdl.bot.commands import HELP_TEXT
-from tgdl.bot.handlers import BotHandlers, DashboardAction, Reply
+from tgdl.bot.dashboard import VIEW_HISTORY
+from tgdl.bot.handlers import BotHandlers, Reply
 from tgdl.models import ChannelRef, TaskSpec, TaskStatus
 from tgdl.task_queue import TaskQueue
 
@@ -13,11 +14,11 @@ class _FakeDashboard:
     def __init__(self) -> None:
         self.calls: list[str] = []
 
-    async def show(self) -> None:
-        self.calls.append("show")
-
     async def refresh(self, force: bool = False) -> None:
         self.calls.append("refresh-force" if force else "refresh")
+
+    async def set_view(self, view: str) -> None:
+        self.calls.append(f"view:{view}")
 
 
 class _RunningQueue(TaskQueue):
@@ -41,8 +42,7 @@ async def test_dl_submits_task_and_shows_dashboard() -> None:
     handlers, queue, _ = _handlers()
     reply = await handlers.handle("/dl https://t.me/chana --regex 4k")
     assert reply.text is not None and "任务 #1" in reply.text and "已加入队列" in reply.text
-    assert reply.dashboard is DashboardAction.SHOW
-    assert queue.get(1) is not None
+    assert reply.refresh_dashboard and queue.get(1) is not None
 
 
 async def test_dl_reports_tasks_ahead() -> None:
@@ -56,20 +56,19 @@ async def test_dl_error_returns_usage_hint_without_dashboard() -> None:
     handlers, _, _ = _handlers()
     reply = await handlers.handle("/dl nope")
     assert (reply.text or "").startswith("❌") and "/help" in (reply.text or "")
-    assert reply.dashboard is DashboardAction.NONE
+    assert not reply.refresh_dashboard
 
 
-async def test_status_and_tasks_only_move_dashboard() -> None:
+async def test_status_and_tasks_only_refresh_dashboard() -> None:
     handlers, _, _ = _handlers()
     for command in ("/status", "/tasks"):
-        reply = await handlers.handle(command)
-        assert reply == Reply(None, DashboardAction.SHOW)
+        assert await handlers.handle(command) == Reply(None, refresh_dashboard=True)
 
 
 async def test_cancel_reports_result_and_refreshes_dashboard() -> None:
     handlers, queue, _ = _handlers()
     missing = await handlers.handle("/cancel 9")
-    assert "不存在" in (missing.text or "") and missing.dashboard is DashboardAction.REFRESH
+    assert "不存在" in (missing.text or "") and missing.refresh_dashboard
     await handlers.handle("/dl https://t.me/chana")
     done = await handlers.handle("/cancel 1")
     assert "已取消" in (done.text or "") and queue.get(1).status is TaskStatus.CANCELLED
@@ -140,12 +139,12 @@ async def test_command_handler_replies_without_markdown_and_drives_dashboard() -
     event = _FakeEvent("/dl https://t.me/chana")
     await on_command(event)
     assert event.replies[0][1] is None and "任务 #1" in event.replies[0][0]
-    assert dashboard.calls == ["show"]
+    assert dashboard.calls == ["refresh-force"]
     status = _FakeEvent("/status")
     await on_command(status)
-    assert status.replies == [] and dashboard.calls == ["show", "show"]
+    assert status.replies == [] and dashboard.calls == ["refresh-force"] * 2
     await on_command(_FakeEvent("/help"))
-    assert dashboard.calls == ["show", "show"]
+    assert dashboard.calls == ["refresh-force"] * 2
 
 
 async def test_command_handler_reports_internal_error(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -170,3 +169,6 @@ async def test_button_handler_answers_and_force_refreshes() -> None:
     stranger = _FakeEvent(data=b"refresh", sender_id=7)
     await on_button(stranger)
     assert stranger.answers == [] and dashboard.calls == ["refresh-force"]
+    switch = _FakeEvent(data=b"view:history")
+    await on_button(switch)
+    assert switch.answers == [""] and dashboard.calls[-1] == f"view:{VIEW_HISTORY}"

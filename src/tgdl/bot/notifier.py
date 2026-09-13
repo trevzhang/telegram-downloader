@@ -6,7 +6,8 @@ from typing import Any, Protocol
 
 from telethon import Button
 
-Buttons = tuple[tuple[str, str], ...]  # ((按钮文字, 回调数据), ...)，渲染为一行内联按钮
+ButtonRow = tuple[tuple[str, str], ...]  # ((按钮文字, 回调数据), ...)
+Buttons = tuple[ButtonRow, ...]  # 多行内联按钮
 
 
 class Notifier(Protocol):
@@ -15,10 +16,10 @@ class Notifier(Protocol):
     async def delete(self, message_id: int) -> None: ...
 
 
-def _inline_row(buttons: Buttons | None) -> list[list[Any]] | None:
+def _inline_rows(buttons: Buttons | None) -> list[list[Any]] | None:
     if not buttons:
         return None
-    return [[Button.inline(label, data.encode()) for label, data in buttons]]
+    return [[Button.inline(label, data.encode()) for label, data in row] for row in buttons]
 
 
 class TelegramNotifier:
@@ -27,12 +28,12 @@ class TelegramNotifier:
         self._owner_id = owner_id
 
     async def send(self, text: str, buttons: Buttons | None = None) -> int:
-        message = await self._bot.send_message(self._owner_id, text, parse_mode=None, buttons=_inline_row(buttons))
+        message = await self._bot.send_message(self._owner_id, text, parse_mode=None, buttons=_inline_rows(buttons))
         return int(message.id)
 
     async def edit(self, message_id: int, text: str, buttons: Buttons | None = None) -> None:
         # 编辑时不传 buttons 会移除原有按钮，调用方需要保留按钮时必须再次传入
-        await self._bot.edit_message(self._owner_id, message_id, text, parse_mode=None, buttons=_inline_row(buttons))
+        await self._bot.edit_message(self._owner_id, message_id, text, parse_mode=None, buttons=_inline_rows(buttons))
 
     async def delete(self, message_id: int) -> None:
         await self._bot.delete_messages(self._owner_id, message_id)

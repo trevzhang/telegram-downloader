@@ -46,10 +46,10 @@ class TaskQueue:
     def current(self) -> TaskState | None:
         return self._states.get(self._current_id) if self._current_id is not None else None
 
-    def latest_finished(self) -> TaskState | None:
-        """最近一个已结束（完成/取消/失败）的任务，用于看板展示上一个结果。"""
-        finished = [s for s in self._states.values() if s.status not in ACTIVE_STATUSES]
-        return max(finished, key=lambda s: s.task_id) if finished else None
+    def finished(self, limit: int) -> tuple[TaskState, ...]:
+        """最近结束（完成/取消/失败）的任务，最新在前，供看板历史视图使用。"""
+        done = sorted((s for s in self._states.values() if s.status not in ACTIVE_STATUSES), key=lambda s: -s.task_id)
+        return tuple(done[:limit])
 
     def cancel(self, task_id: int) -> bool:
         state = self._states.get(task_id)

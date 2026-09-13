@@ -138,18 +138,18 @@ async def test_runner_returning_active_status_is_normalised_to_done(caplog: pyte
     assert any("downloading" in record.getMessage() for record in caplog.records)
 
 
-async def test_latest_finished_and_on_change_callback() -> None:
+async def test_finished_and_on_change_callback() -> None:
     seen: list[tuple[int, TaskStatus]] = []
 
     async def runner(state: TaskState, publish: object) -> TaskState:
         return replace(state, status=TaskStatus.DONE)
 
     queue = TaskQueue(runner, on_change=lambda s: seen.append((s.task_id, s.status)))
-    assert queue.latest_finished() is None
+    assert queue.finished(5) == ()
     queue.submit(SPEC)
     queue.submit(SPEC)
     assert seen == [(1, TaskStatus.QUEUED), (2, TaskStatus.QUEUED)]
     await queue._run_one(1)  # noqa: SLF001
     await queue._run_one(2)  # noqa: SLF001
-    assert queue.latest_finished().task_id == 2
+    assert [s.task_id for s in queue.finished(5)] == [2, 1] and len(queue.finished(1)) == 1
     assert seen[-1] == (2, TaskStatus.DONE)

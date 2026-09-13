@@ -25,13 +25,18 @@ class _FakeBot:
 async def test_send_edit_delete_map_buttons_and_disable_markdown() -> None:
     bot = _FakeBot()
     notifier = TelegramNotifier(bot, owner_id=42)
-    assert await notifier.send("hi", buttons=(("🔄 刷新", "refresh"), ("🚫 取消", "cancel"))) == 9
+    assert (
+        await notifier.send(
+            "hi", buttons=((("🔄 刷新", "refresh"), ("🚫 取消", "cancel")), (("📜 历史", "view:history"),))
+        )
+        == 9
+    )
     await notifier.edit(9, "hi2")
     await notifier.delete(9)
     send, edit, delete = bot.calls
     assert send[1] == (42, "hi") and send[2]["parse_mode"] is None
-    row = send[2]["buttons"][0]
-    assert [b.text for b in row] == ["🔄 刷新", "🚫 取消"] and type(row[0]).__name__ == "KeyboardInlineButton"
-    assert row[1].type.data == b"cancel"
+    rows = send[2]["buttons"]
+    assert [[b.text for b in row] for row in rows] == [["🔄 刷新", "🚫 取消"], ["📜 历史"]]
+    assert type(rows[0][0]).__name__ == "KeyboardInlineButton" and rows[0][1].type.data == b"cancel"
     assert edit[1] == (42, 9, "hi2") and edit[2] == {"parse_mode": None, "buttons": None}
     assert delete[1] == (42, 9)

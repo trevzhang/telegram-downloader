@@ -4,15 +4,19 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from telethon.errors import MessageNotModifiedError
 
 from tests.fakes.telegram import FakeNotifier
 from tgdl.bot.dashboard import (
-    CANCEL_BUTTON,
-    REFRESH_BUTTON,
+    ACTION_ROW_IDLE,
+    ACTION_ROW_RUNNING,
+    VIEW_HISTORY,
+    VIEW_PROGRESS,
+    VIEW_QUEUE,
     Dashboard,
     DashboardData,
-    DashboardView,
     render_dashboard,
+    view_row,
 )
 from tgdl.models import ChannelRef, FileResult, FileStatus, MediaItem, MediaKind, TaskSpec, TaskState, TaskStatus
 from tgdl.progress import ProgressTracker
@@ -29,83 +33,112 @@ def _item(message_id: int = 1) -> MediaItem:
     )
 
 
-def test_render_idle_dashboard_has_only_refresh_button() -> None:
-    view = render_dashboard(DashboardData())
-    assert "没有任务" in view.text and view.buttons == (REFRESH_BUTTON,)
-
-
-def test_render_running_dashboard_shows_progress_queue_note_and_last_result() -> None:
+def _running_data() -> DashboardData:
     tracker = ProgressTracker(task_id=2, channel_title="@c2", items=(_item(1), _item(2)))
     tracker.on_file_done(FileResult(item=_item(1), path=Path("x"), status=FileStatus.DONE))
     last = replace(_state(1, TaskStatus.DONE, "@c1"), results=(FileResult(_item(), Path("x"), FileStatus.DONE),))
-    data = DashboardData(
-        current=_state(2, TaskStatus.DOWNLOADING, "@c2"),
-        active=(_state(2, TaskStatus.DOWNLOADING, "@c2"), _state(3, TaskStatus.QUEUED), _state(4, TaskStatus.QUEUED)),
+    current = _state(2, TaskStatus.DOWNLOADING, "@c2")
+    return DashboardData(
+        current=current,
+        active=(current, _state(3, TaskStatus.QUEUED), _state(4, TaskStatus.QUEUED)),
         snapshot=tracker.snapshot,
         note="⏳ 限流等待 12 秒",
-        last_finished=last,
+        finished=(last,),
     )
-    view = render_dashboard(data)
-    assert "任务 #2" in view.text and "1/2 个文件" in view.text
-    assert "排队中" in view.text and "#3" in view.text and "#4" in view.text and "#2" in view.text
-    assert "限流等待 12 秒" in view.text
-    assert "上一个" in view.text and "任务 #1" in view.text
-    assert view.buttons == (REFRESH_BUTTON, CANCEL_BUTTON)
+
+
+def test_render_idle_progress_view() -> None:
+    view = render_dashboard(DashboardData(), VIEW_PROGRESS)
+    assert "没有任务" in view.text
+    assert view.buttons == (view_row(VIEW_PROGRESS), ACTION_ROW_IDLE)
+
+
+def test_render_progress_view_marks_active_tab_and_shows_cancel() -> None:
+    view = render_dashboard(_running_data(), VIEW_PROGRESS)
+    assert "任务 #2" in view.text and "1/2 个文件" in view.text and "限流等待 12 秒" in view.text
+    assert "#3" not in view.text  # 排队详情在队列视图
+    assert view.buttons == (view_row(VIEW_PROGRESS), ACTION_ROW_RUNNING)
+    assert view.buttons[0][0][0].startswith("•")  # 当前视图标记
+
+
+def test_render_queue_view_lists_current_and_queued() -> None:
+    view = render_dashboard(_running_data(), VIEW_QUEUE)
+    assert "#2" in view.text and "1/2" in view.text and "#3" in view.text and "#4" in view.text
+    assert view.buttons[0] == view_row(VIEW_QUEUE)
+
+
+def test_render_history_view_lists_finished() -> None:
+    view = render_dashboard(_running_data(), VIEW_HISTORY)
+    assert "任务 #1" in view.text and "成功：1" in view.text
+    assert "没有" in render_dashboard(DashboardData(), VIEW_HISTORY).text
 
 
 def test_render_scanning_task_without_snapshot() -> None:
-    view = render_dashboard(
-        DashboardData(current=_state(5, TaskStatus.SCANNING), active=(_state(5, TaskStatus.SCANNING),))
-    )
-    assert "任务 #5" in view.text and "扫描" in view.text and "https://t.me/chan5" in view.text
+    data = DashboardData(current=_state(5, TaskStatus.SCANNING), active=(_state(5, TaskStatus.SCANNING),))
+    assert "任务 #5" in render_dashboard(data, VIEW_PROGRESS).text
 
 
-def _dashboard(views: list[DashboardView], notifier: FakeNotifier | None = None) -> tuple[Dashboard, FakeNotifier]:
-    notifier = notifier or FakeNotifier()
-    it = iter(views)
-    last = views[-1]
-    return Dashboard(notifier, lambda: next(it, last), interval=0.01), notifier  # type: ignore[arg-type]
+class _Dash:
+    def __init__(self, notifier: FakeNotifier | None = None, interval: float = 0.01) -> None:
+        self.notifier = notifier or FakeNotifier()
+        self.data = DashboardData()
+        self.dash = Dashboard(self.notifier, lambda: self.data, interval=interval)  # type: ignore[arg-type]
 
 
-async def test_show_sends_once_then_replaces_previous_message() -> None:
-    dash, notifier = _dashboard([DashboardView("a", (REFRESH_BUTTON,))])
-    await dash.show()
-    assert notifier.sent == ["a"] and notifier.buttons[1] == (REFRESH_BUTTON,) and dash.message_id == 1
-    await dash.show()
-    assert notifier.deleted == [1] and notifier.sent == ["a", "a"] and dash.message_id == 2
+async def test_refresh_sends_once_then_edits_in_place_only_on_change() -> None:
+    d = _Dash()
+    await d.dash.refresh()
+    assert len(d.notifier.sent) == 1 and d.dash.message_id == 1
+    await d.dash.refresh()
+    assert d.notifier.edits == [] and d.notifier.sent == d.notifier.sent[:1]
+    d.data = _running_data()
+    await d.dash.refresh()
+    assert len(d.notifier.edits) == 1 and d.notifier.edits[0][0] == 1 and d.notifier.deleted == []
 
 
-async def test_refresh_edits_only_on_change_and_keeps_buttons() -> None:
-    views = [
-        DashboardView("a", (REFRESH_BUTTON,)),
-        DashboardView("a", (REFRESH_BUTTON,)),
-        DashboardView("b", (REFRESH_BUTTON, CANCEL_BUTTON)),
-    ]
-    dash, notifier = _dashboard(views)
-    await dash.refresh()  # 尚无消息：等同于 show
-    assert notifier.sent == ["a"] and notifier.edits == []
-    await dash.refresh()
-    assert notifier.edits == []
-    await dash.refresh()
-    assert notifier.edits == [(1, "b")] and notifier.buttons[1] == (REFRESH_BUTTON, CANCEL_BUTTON)
+async def test_set_view_switches_content_in_place() -> None:
+    d = _Dash()
+    d.data = _running_data()
+    await d.dash.refresh()
+    await d.dash.set_view(VIEW_HISTORY)
+    assert d.dash.view == VIEW_HISTORY
+    assert "任务 #1" in d.notifier.edits[-1][1] and len(d.notifier.sent) == 1
+    await d.dash.set_view("bogus")
+    assert d.dash.view == VIEW_HISTORY
 
 
-async def test_force_refresh_edits_even_when_unchanged() -> None:
-    dash, notifier = _dashboard([DashboardView("a", ())])
-    await dash.show()
-    await dash.refresh(force=True)
-    assert notifier.edits == [(1, "a")]
+async def test_force_refresh_and_not_modified_are_fine() -> None:
+    class _NotModified(FakeNotifier):
+        async def edit(self, message_id: int, text: str, buttons: object = None) -> None:
+            raise MessageNotModifiedError(request=None)
+
+    d = _Dash(_NotModified())
+    await d.dash.refresh()
+    await d.dash.refresh(force=True)
+    assert len(d.notifier.sent) == 1 and d.notifier.deleted == []
 
 
-async def test_edit_failure_resends_dashboard(caplog: pytest.LogCaptureFixture) -> None:
+async def test_edit_failure_resends_once() -> None:
     class _BrokenEdit(FakeNotifier):
         async def edit(self, message_id: int, text: str, buttons: object = None) -> None:
             raise ConnectionError("gone")
 
-    dash, notifier = _dashboard([DashboardView("a", ()), DashboardView("b", ())], _BrokenEdit())
-    await dash.show()
-    await dash.refresh()
-    assert notifier.sent == ["a", "b"] and notifier.deleted == [1] and dash.message_id == 2
+    d = _Dash(_BrokenEdit())
+    await d.dash.refresh()
+    d.data = _running_data()
+    await d.dash.refresh()
+    assert len(d.notifier.sent) == 2 and d.notifier.deleted == [1] and d.dash.message_id == 2
+
+
+async def test_concurrent_refreshes_never_produce_two_dashboards() -> None:
+    class _Slow(FakeNotifier):
+        async def send(self, text: str, buttons: object = None) -> int:
+            await asyncio.sleep(0.01)
+            return await super().send(text, buttons)
+
+    d = _Dash(_Slow())
+    await asyncio.gather(d.dash.refresh(), d.dash.refresh(force=True), d.dash.refresh())
+    assert len(d.notifier.sent) == 1
 
 
 async def test_send_failure_is_tolerated(caplog: pytest.LogCaptureFixture) -> None:
@@ -113,22 +146,21 @@ async def test_send_failure_is_tolerated(caplog: pytest.LogCaptureFixture) -> No
         async def send(self, text: str, buttons: object = None) -> int:
             raise ConnectionError("no network")
 
-    dash, _ = _dashboard([DashboardView("a", ())], _BrokenSend())
+    d = _Dash(_BrokenSend())
     with caplog.at_level("WARNING"):
-        await dash.show()
-    assert dash.message_id is None and "no network" in caplog.text
+        await d.dash.refresh()
+    assert d.dash.message_id is None and "no network" in caplog.text
 
 
 async def test_run_loop_wakes_immediately_on_request() -> None:
-    views = [DashboardView("a", ()), DashboardView("b", ())]
-    dash, notifier = _dashboard(views)
-    dash._interval = 10  # noqa: SLF001
-    await dash.show()
-    task = asyncio.create_task(dash.run())
+    d = _Dash(interval=10)
+    await d.dash.refresh()
+    task = asyncio.create_task(d.dash.run())
     await asyncio.sleep(0)
-    dash.request_refresh()
+    d.data = _running_data()
+    d.dash.request_refresh()
     await asyncio.sleep(0.05)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
-    assert notifier.edits == [(1, "b")]
+    assert len(d.notifier.edits) == 1

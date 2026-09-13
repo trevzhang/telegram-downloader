@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from enum import Enum
 from typing import Any, Protocol
 
 from telethon import events
 
 from tgdl.bot.commands import HELP_TEXT, CommandError, parse_cancel, parse_dl, split_command
+from tgdl.bot.dashboard import VIEW_PREFIX
 from tgdl.task_queue import TaskQueue
 
 log = logging.getLogger(__name__)
@@ -23,21 +23,15 @@ BUTTON_REFRESH = "refresh"
 BUTTON_CANCEL = "cancel"
 
 
-class DashboardAction(Enum):
-    NONE = "none"
-    REFRESH = "refresh"  # 原地编辑
-    SHOW = "show"  # 移到聊天底部
-
-
 @dataclass(frozen=True)
 class Reply:
     text: str | None
-    dashboard: DashboardAction = DashboardAction.NONE
+    refresh_dashboard: bool = False  # 原地刷新看板；看板不存在时会新发一条
 
 
 class DashboardLike(Protocol):
-    async def show(self) -> None: ...
     async def refresh(self, force: bool = False) -> None: ...
+    async def set_view(self, view: str) -> None: ...
 
 
 class BotHandlers:
@@ -49,11 +43,11 @@ class BotHandlers:
         try:
             name, args = split_command(text)
             if name == "/dl":
-                return Reply(self._dl(args), DashboardAction.SHOW)
+                return Reply(self._dl(args), refresh_dashboard=True)
             if name in ("/tasks", "/status"):
-                return Reply(None, DashboardAction.SHOW)
+                return Reply(None, refresh_dashboard=True)
             if name == "/cancel":
-                return Reply(self._cancel(parse_cancel(args)), DashboardAction.REFRESH)
+                return Reply(self._cancel(parse_cancel(args)), refresh_dashboard=True)
             if name in ("/help", "/start"):
                 return Reply(HELP_TEXT)
             return Reply("未知命令，发送 /help 查看用法")
@@ -61,7 +55,7 @@ class BotHandlers:
             return Reply(f"❌ {exc}\n\n发送 /help 查看用法")
 
     def handle_button(self, data: str) -> str:
-        """处理看板按钮，返回弹出提示文字。"""
+        """处理看板按钮（视图切换除外），返回弹出提示文字。"""
         if data == BUTTON_REFRESH:
             return REFRESHED_ANSWER
         if data == BUTTON_CANCEL:
@@ -86,7 +80,8 @@ class BotHandlers:
                 reply = Reply(INTERNAL_ERROR_REPLY)
             if reply.text is not None:
                 await event.reply(reply.text, parse_mode=None)
-            await self._apply(reply.dashboard)
+            if reply.refresh_dashboard:
+                await self._dashboard.refresh(force=True)
 
         @bot_client.on(callback_builder)
         async def _on_button(event: Any) -> None:
@@ -94,15 +89,13 @@ class BotHandlers:
                 return
             data = bytes(event.data or b"").decode(errors="ignore")
             log.info("收到按钮: %s", data)
+            if data.startswith(VIEW_PREFIX):
+                await self._dashboard.set_view(data[len(VIEW_PREFIX) :])
+                await event.answer()
+                return
             answer = self.handle_button(data)
-            await self._apply(DashboardAction.REFRESH)
-            await event.answer(answer)
-
-    async def _apply(self, action: DashboardAction) -> None:
-        if action is DashboardAction.SHOW:
-            await self._dashboard.show()
-        elif action is DashboardAction.REFRESH:
             await self._dashboard.refresh(force=True)
+            await event.answer(answer)
 
     def _dl(self, args: list[str]) -> str:
         state = self._queue.submit(parse_dl(args))

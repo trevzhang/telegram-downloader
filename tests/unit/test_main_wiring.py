@@ -243,7 +243,7 @@ async def test_dashboard_data_collects_queue_and_worker_state(tmp_path: Path) ->
     queue.submit(TaskSpec(link=ChannelRef(username="chana"), raw_link="https://t.me/chana"))
     data = dashboard_data(queue, worker)
     assert data.current is None and len(data.active) == 1
-    assert data.snapshot is None and data.note is None and data.last_finished is None
+    assert data.snapshot is None and data.note is None and data.finished == ()
 
 
 async def test_register_menu_quietly_tolerates_failure(caplog: pytest.LogCaptureFixture) -> None:

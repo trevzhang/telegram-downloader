@@ -12,7 +12,7 @@ from typing import Any
 
 from telethon import TelegramClient
 
-from tgdl.bot.dashboard import Dashboard, DashboardData, render_dashboard
+from tgdl.bot.dashboard import HISTORY_LIMIT, Dashboard, DashboardData
 from tgdl.bot.handlers import BotHandlers
 from tgdl.bot.menu import register_commands
 from tgdl.bot.notifier import TelegramNotifier
@@ -115,7 +115,7 @@ def dashboard_data(queue: TaskQueue, worker: TaskWorker) -> DashboardData:
         active=queue.active(),
         snapshot=worker.current_snapshot(),
         note=worker.current_note(),
-        last_finished=queue.latest_finished(),
+        finished=queue.finished(HISTORY_LIMIT),
     )
 
 
@@ -196,13 +196,11 @@ async def main_async(settings: Settings) -> None:
         log.info("用户与 Bot 客户端已登录，代理: %s", "已启用" if settings.proxy() else "直连")
         notifier = TelegramNotifier(bot, settings.owner_id)
         worker = TaskWorker(user, notifier, build_worker_config(settings))
-        dashboard = Dashboard(
-            notifier, lambda: render_dashboard(dashboard_data(queue, worker)), settings.progress_interval
-        )
+        dashboard = Dashboard(notifier, lambda: dashboard_data(queue, worker), settings.progress_interval)
         queue = TaskQueue(worker.run, on_change=lambda _state: dashboard.request_refresh())
         BotHandlers(queue, dashboard).register(bot, settings.owner_id)
         await register_menu_quietly(bot)
-        await dashboard.show()  # 启动即发出看板，替代原来的启动通知
+        await dashboard.refresh()  # 启动即发出看板，替代原来的启动通知
         dashboard_task = asyncio.create_task(dashboard.run())
         try:
             await _run_until_first_done(queue.run_forever(), bot.run_until_disconnected())
