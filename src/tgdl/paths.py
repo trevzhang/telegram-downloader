@@ -13,6 +13,7 @@ MAX_NAME_LENGTH = 120
 MAX_NAME_BYTES = 200
 MAX_EXT_LENGTH = 10
 PART_SUFFIX = ".part"
+MONTH_DIR_FORMAT = "%Y_%m"  # 月份子目录形如 2026_09
 DEFAULT_NAME = "file"
 
 
@@ -59,14 +60,15 @@ def sanitize_filename(name: str) -> str:
 
 
 def channel_dir_name(entity: Any) -> str:
-    username = getattr(entity, "username", None)
+    """目录名优先用频道/群组的显示名称，与手工整理的目录习惯一致；没有名称时退回用户名，再退回 ID。"""
     title = getattr(entity, "title", None)
-    return sanitize_filename(username or title or str(entity.id))
+    username = getattr(entity, "username", None)
+    return sanitize_filename(title or username or str(entity.id))
 
 
 def target_path(root: Path, channel_dir: str, item: MediaItem) -> Path:
     file_name = sanitize_filename(item.file_name)
-    return root / channel_dir / item.date.strftime("%Y-%m") / f"{item.message_id}_{file_name}"
+    return root / channel_dir / item.date.strftime(MONTH_DIR_FORMAT) / f"{item.message_id}_{file_name}"
 
 
 def part_path(path: Path) -> Path:

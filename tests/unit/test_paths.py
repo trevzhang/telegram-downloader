@@ -39,9 +39,10 @@ def test_sanitize_truncates_long_name_keeping_ext() -> None:
     assert len(name) <= 120
 
 
-def test_channel_dir_name_prefers_username_then_title_then_id() -> None:
-    assert channel_dir_name(_Entity(1, "标题", "user_name")) == "user_name"
+def test_channel_dir_name_prefers_title_then_username_then_id() -> None:
+    assert channel_dir_name(_Entity(1, "众乐乐内部群 (满血版)", "user_name")) == "众乐乐内部群 (满血版)"
     assert channel_dir_name(_Entity(1, "My Chan/2")) == "My Chan_2"
+    assert channel_dir_name(_Entity(1, None, "user_name")) == "user_name"
     assert channel_dir_name(_Entity(99)) == "99"
 
 
@@ -49,7 +50,7 @@ def test_target_path_layout() -> None:
     item = MediaItem(
         message_id=42, date=datetime(2026, 3, 5, tzinfo=UTC), kind=MediaKind.VIDEO, file_name="v.mp4", size=1
     )
-    assert target_path(Path("dl"), "chan", item) == Path("dl/chan/2026-03/42_v.mp4")
+    assert target_path(Path("dl"), "chan", item) == Path("dl/chan/2026_03/42_v.mp4")
 
 
 def test_part_path() -> None:
@@ -93,7 +94,7 @@ def test_target_path_sanitizes_file_name() -> None:
     )
     path = target_path(Path("dl"), "chan", item)
     assert ".." not in path.parts
-    assert path.parent == Path("dl/chan/2026-03")
+    assert path.parent == Path("dl/chan/2026_03")
     assert path.name.startswith("42_") and path.name.endswith("evil.mp4")
 
 

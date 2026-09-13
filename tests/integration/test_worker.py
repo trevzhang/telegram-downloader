@@ -39,7 +39,7 @@ async def test_happy_path_downloads_and_reports(tmp_path: Path) -> None:
     assert [r.status for r in final.results] == [FileStatus.DONE] * 3
     assert final.channel_title == "@mychan"
     assert [s.status for s in published] == [TaskStatus.SCANNING, TaskStatus.DOWNLOADING]
-    assert (tmp_path / "mychan" / "2026-01" / "2_v.mp4").exists()
+    assert (tmp_path / "My Chan" / "2026_01" / "2_v.mp4").exists()
     assert any("共 3 个文件" in text for text in notifier.sent)
     assert notifier.edits and "成功：3" in notifier.edits[-1][1]
 

@@ -158,7 +158,7 @@ async def test_download_all_respects_concurrency_and_updates_tracker(tmp_path: P
     assert len(results) == 6 and all(r.status is FileStatus.DONE for r in results)
     assert client.max_concurrent == 2
     assert tracker.snapshot.done == 6 and tracker.snapshot.fraction == 1.0
-    assert (tmp_path / "chan" / "2026-01" / "3_v3.mp4").exists()
+    assert (tmp_path / "chan" / "2026_01" / "3_v3.mp4").exists()
 
 
 async def test_unknown_exception_fails_without_retry_and_siblings_continue(tmp_path: Path) -> None:
