@@ -230,7 +230,8 @@ def render_summary(state: TaskState) -> str:
     icon = {TaskStatus.DONE: "✅", TaskStatus.CANCELLED: "🚫", TaskStatus.FAILED: "❌"}.get(state.status, "ℹ️")
     lines = [
         f"{icon} 任务 #{state.task_id}  {state.channel_title}  {STATUS_LABEL[state.status]}",
-        f"✅ 成功 {counts[FileStatus.DONE]}  ⏭️ 跳过 {counts[FileStatus.SKIPPED]}（已存在）  ❌ 失败 {counts[FileStatus.FAILED]}",
+        f"✅ 成功 {counts[FileStatus.DONE]}  ⏭️ 跳过 {counts[FileStatus.SKIPPED]}（已存在）"
+        f"  ❌ 失败 {counts[FileStatus.FAILED]}",
         f"📦 共 {len(state.items)} 个，{format_bytes(total_bytes)}",
     ]
     failures = tuple(r for r in state.results if r.status is FileStatus.FAILED)
