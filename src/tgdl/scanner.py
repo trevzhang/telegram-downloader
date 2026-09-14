@@ -116,13 +116,7 @@ def extract_media(message: Any) -> MediaItem | None:
 
 def is_single_message(spec: TaskSpec) -> bool:
     """链接带消息 ID 且没有任何范围条件：只下载这一条消息（及其所属相册）。"""
-    return (
-        spec.link.message_id is not None
-        and spec.id_from is None
-        and spec.id_to is None
-        and spec.date_from is None
-        and spec.date_to is None
-    )
+    return spec.link.message_id is not None and spec.id_from is None and spec.id_to is None
 
 
 def iter_kwargs(spec: TaskSpec) -> dict[str, Any]:
@@ -134,12 +128,7 @@ def iter_kwargs(spec: TaskSpec) -> dict[str, Any]:
         mid = spec.link.message_id or 0
         # 相册最多 10 项且 ID 相邻，前后各扫 ALBUM_WINDOW 个足以覆盖整个相册
         return {"reverse": True, "min_id": max(0, mid - ALBUM_WINDOW - 1), "max_id": mid + ALBUM_WINDOW + 1}
-    kwargs: dict[str, Any] = {"reverse": True}
-    if spec.date_from is not None:
-        kwargs["offset_date"] = spec.date_from
-    if spec.link.message_id is not None:
-        kwargs["min_id"] = spec.link.message_id - 1
-    return kwargs
+    return {"reverse": True}
 
 
 def _propagate_album_captions(pairs: tuple[tuple[Any, MediaItem], ...]) -> tuple[MediaItem, ...]:
@@ -164,10 +153,6 @@ def _select_single_message(
 async def scan(client: Any, entity: Any, spec: TaskSpec, media_filter: MediaFilter) -> tuple[MediaItem, ...]:
     collected: list[tuple[Any, MediaItem]] = []
     async for message in client.iter_messages(entity, **iter_kwargs(spec)):
-        if spec.date_to is not None and message.date > spec.date_to:
-            break
-        if spec.date_from is not None and message.date < spec.date_from:  # 服务端 offset_date 仅是优化
-            continue
         item = extract_media(message)
         if item is not None:
             collected.append((message, item))

@@ -1,133 +1,129 @@
 import logging
+import os
 import time as time_module
 from collections.abc import Iterator
 from datetime import UTC, datetime
-from time import perf_counter
 
 import pytest
 
-from tgdl.filters import FilterError, MediaFilter, build_filter, compile_regex, parse_datetime, validate_spec
+from tgdl.filters import FilterError, compile_filter, parse_date_literal, validate_spec
 from tgdl.models import ChannelRef, MediaItem, MediaKind, TaskSpec
 
-
-def _spec(**kwargs: object) -> TaskSpec:
-    return TaskSpec(link=ChannelRef(username="c"), raw_link="https://t.me/c", **kwargs)  # type: ignore[arg-type]
+T0 = datetime(2026, 5, 10, 12, 0, tzinfo=UTC)
 
 
-def _item(kind: MediaKind = MediaKind.VIDEO, name: str = "a.mp4", caption: str = "") -> MediaItem:
-    return MediaItem(
-        message_id=1, date=datetime(2026, 1, 1, tzinfo=UTC), kind=kind, file_name=name, size=1, caption=caption
-    )
+def _item(**kw: object) -> MediaItem:
+    base: dict = {
+        "message_id": 100,
+        "date": T0,
+        "kind": MediaKind.VIDEO,
+        "file_name": "EP01 饼干姐姐.mp4",
+        "size": 50 * 1024 * 1024,
+        "caption": "#饼干姐姐 第一集",
+        "ext": ".mp4",
+    }
+    return MediaItem(**{**base, **kw})  # type: ignore[arg-type]
 
 
-def test_parse_date_only_is_utc_aware() -> None:
-    value = parse_datetime("2026-03-01")
-    assert value.tzinfo is not None
-    assert value.utcoffset().total_seconds() == 0
+def _ok(expr: str, **kw: object) -> bool:
+    return compile_filter(expr).matches(_item(**kw))
 
 
-def test_parse_date_only_end_of_day() -> None:
-    start = parse_datetime("2026-03-01")
-    end = parse_datetime("2026-03-01", end_of_day=True)
-    assert (end - start).total_seconds() > 86399
+def test_empty_filter_matches_everything() -> None:
+    assert compile_filter(None).matches(_item()) and compile_filter("  ").matches(_item())
 
 
-def test_parse_datetime_with_time() -> None:
-    value = parse_datetime("2026-03-01T12:30")
-    assert value.tzinfo is not None
+def test_caption_regex_and_plain_equality() -> None:
+    assert _ok("caption == r'.*#饼干姐姐.*'")
+    assert not _ok("caption == r'#饼干姐姐'")  # 正则需整体匹配
+    assert _ok("message_caption != r'.*#三体.*'")
+    assert _ok("caption == '#饼干姐姐 第一集'") and not _ok("caption == '#饼干姐姐'")
+    assert _ok('caption == r".*第一集"')
 
 
-def test_parse_datetime_invalid() -> None:
-    with pytest.raises(FilterError, match="日期格式无效"):
-        parse_datetime("2026/03/01")
+def test_file_name_type_extension_fields() -> None:
+    assert _ok("file_name == r'.*EP0\\d.*'") and _ok("media_file_name == r'.*\\.mp4'")
+    assert _ok("media_type == 'video'") and not _ok("media_type == 'photo'")
+    assert _ok("file_extension == r'(mp4|mp3)'")
+    assert _ok("file_name == '7.jpg'", file_name="", ext=".jpg", message_id=7)
 
 
-def test_compile_regex_invalid() -> None:
-    with pytest.raises(FilterError, match="正则表达式无效"):
-        compile_regex("(")
+def test_size_with_units_and_products() -> None:
+    assert _ok("file_size >= 1KB and file_size <= 100MB")
+    assert _ok("media_file_size >= 10 * 1024 * 1024 && file_size < 1GB")
+    assert not _ok("file_size > 60MB")
+    assert _ok("file_size == 52428800")
 
 
-def test_validate_date_and_ids_conflict() -> None:
-    with pytest.raises(FilterError, match="不能同时使用"):
-        validate_spec(_spec(date_from=datetime(2026, 1, 1, tzinfo=UTC), id_from=1, id_to=2))
+def test_id_range_and_logic_with_parentheses() -> None:
+    assert _ok("id >= 1 && id <= 900")
+    assert not _ok("message_id > 100 or message_id < 100")
+    assert _ok("(caption == r'.*#三体.*' or caption == r'.*饼干.*') and file_size > 1MB")
+    assert not _ok("caption == r'.*#三体.*' or caption == r'.*饼干.*' and file_size > 1GB")
 
 
-def test_validate_reversed_ids() -> None:
-    with pytest.raises(FilterError, match="起始序号"):
-        validate_spec(_spec(id_from=10, id_to=2))
+def test_date_literals_precisions_and_aliases() -> None:
+    assert _ok("message_date >= 2026-05-10 and message_date <= 2026-09-15")
+    assert _ok("message_date > 2026.05 and message_date < 2026.06")
+    assert _ok("message_date_time > 2026/05/10 00:00 && message_date_time < 2026-05-10 23:59:59")
+    assert not _ok("message_date < 2026-05-10")
 
 
-def test_validate_reversed_dates() -> None:
-    with pytest.raises(FilterError, match="不能晚于"):
-        validate_spec(_spec(date_from=datetime(2026, 2, 1, tzinfo=UTC), date_to=datetime(2026, 1, 1, tzinfo=UTC)))
-
-
-def test_validate_ok_passes() -> None:
-    validate_spec(_spec(id_from=1, id_to=5, regex="abc"))
-
-
-def test_filter_matches_caption_or_filename_case_insensitive() -> None:
-    flt = MediaFilter(pattern=compile_regex("4k"))
-    assert flt.matches(_item(caption="Movie 4K HDR"))
-    assert flt.matches(_item(name="movie.4K.mp4"))
-    assert not flt.matches(_item(caption="720p", name="x.mp4"))
-
-
-def test_filter_by_kind() -> None:
-    flt = MediaFilter(kind=MediaKind.PHOTO)
-    assert flt.matches(_item(kind=MediaKind.PHOTO))
-    assert not flt.matches(_item(kind=MediaKind.VIDEO))
-
-
-def test_build_filter_from_spec() -> None:
-    flt = build_filter(_spec(regex="ep\\d+", kind=MediaKind.VIDEO))
-    assert flt.matches(_item(caption="EP01"))
-    assert not flt.matches(_item(kind=MediaKind.PHOTO, caption="EP01"))
-
-
-def test_pathological_regex_times_out_instead_of_hanging() -> None:
-    flt = MediaFilter(pattern=compile_regex("(a+)+$"))
-    started = perf_counter()
-    matched = flt.matches(_item(caption="a" * 40 + "b", name="x.mp4"))
-    elapsed = perf_counter() - started
-    assert matched is False
-    assert elapsed < 5
-
-
-def test_regex_timeout_logs_warning_and_returns_false(caplog: pytest.LogCaptureFixture) -> None:
-    flt = MediaFilter(pattern=compile_regex("^(a|aa)+$"))
-    started = perf_counter()
-    with caplog.at_level(logging.WARNING, logger="tgdl.filters"):
-        matched = flt.matches(_item(caption="a" * 40 + "b", name="x.mp4"))
-    assert matched is False
-    assert perf_counter() - started < 5
-    assert any("^(a|aa)+$" in record.getMessage() for record in caplog.records)
-
-
-@pytest.mark.parametrize("bounds", [(0, 5), (1, 99999999999)])
-def test_validate_ids_out_of_bounds(bounds: tuple[int, int]) -> None:
-    with pytest.raises(FilterError, match="1 到 2147483647"):
-        validate_spec(_spec(id_from=bounds[0], id_to=bounds[1]))
-
-
-def test_parse_datetime_rejects_compact_digits() -> None:
-    with pytest.raises(FilterError, match="日期格式无效"):
-        parse_datetime("20260101")
-
-
-def test_parse_datetime_accepts_seconds() -> None:
-    assert parse_datetime("2026-03-01T12:30:15").tzinfo is not None
+def test_parse_date_literal_uses_local_timezone(shanghai_tz: None) -> None:
+    assert parse_date_literal("2026-05-10 08:00") == datetime(2026, 5, 10, 0, 0, tzinfo=UTC)
+    assert parse_date_literal("2026.05") == datetime(2026, 4, 30, 16, 0, tzinfo=UTC)
 
 
 @pytest.fixture
-def shanghai_tz(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    monkeypatch.setenv("TZ", "Asia/Shanghai")
+def shanghai_tz() -> Iterator[None]:
+    old = os.environ.get("TZ")
+    os.environ["TZ"] = "Asia/Shanghai"
     time_module.tzset()
     yield
-    monkeypatch.undo()
+    if old is None:
+        del os.environ["TZ"]
+    else:
+        os.environ["TZ"] = old
     time_module.tzset()
 
 
-def test_parse_datetime_uses_local_timezone(shanghai_tz: None) -> None:
-    assert parse_datetime("2026-03-01") == datetime(2026, 2, 28, 16, 0, tzinfo=UTC)
-    assert parse_datetime("2026-03-01", end_of_day=True).isoformat() == "2026-03-01T15:59:59.999999+00:00"
+@pytest.mark.parametrize(
+    "expr",
+    [
+        "caption == 123",
+        "caption > 'a'",
+        "file_size == 'big'",
+        "message_date >= 'yesterday'",
+        "unknown_field == 1",
+        "id >= 1 and",
+        "(id >= 1",
+        "id >= 1 && id <= 2 extra",
+        "caption == r'(unclosed'",
+        "id ~ 1",
+        "message_date >= 2026-13-01",
+    ],
+)
+def test_invalid_expressions_raise(expr: str) -> None:
+    with pytest.raises(FilterError):
+        compile_filter(expr)
+
+
+def test_pathological_regex_times_out(caplog: pytest.LogCaptureFixture) -> None:
+    flt = compile_filter("caption == r'^(a|aa)+$'")
+    with caplog.at_level(logging.WARNING):
+        assert flt.matches(_item(caption="a" * 40 + "b")) is False
+    assert "超时" in caplog.text
+
+
+def _spec(**kw: object) -> TaskSpec:
+    return TaskSpec(link=ChannelRef(username="c"), raw_link="x", **kw)  # type: ignore[arg-type]
+
+
+def test_validate_spec_checks_ids_and_filter() -> None:
+    validate_spec(_spec(id_from=1, id_to=None, filter_expr="id > 3"))
+    with pytest.raises(FilterError, match="起始序号"):
+        validate_spec(_spec(id_from=5, id_to=3))
+    with pytest.raises(FilterError):
+        validate_spec(_spec(id_from=0))
+    with pytest.raises(FilterError):
+        validate_spec(_spec(filter_expr="caption == 1"))

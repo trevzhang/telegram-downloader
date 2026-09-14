@@ -8,13 +8,13 @@ from typing import Any, Protocol
 
 from telethon import events
 
-from tgdl.bot.commands import HELP_TEXT, CommandError, parse_cancel, parse_dl, split_command
+from tgdl.bot.commands import HELP_TEXT, CommandError, parse_cancel, parse_download, split_command
 from tgdl.bot.dashboard import VIEW_PREFIX
 from tgdl.task_queue import TaskQueue
 
 log = logging.getLogger(__name__)
 
-COMMAND_PATTERN = r"^/"
+COMMAND_PATTERN = r"^(/|https://t\.me/)"  # 命令，或直接发来的消息链接
 INTERNAL_ERROR_REPLY = "⚠️ 内部错误，请查看日志"
 REFRESHED_ANSWER = "已刷新"
 NO_CURRENT_TASK_ANSWER = "没有正在执行的任务"
@@ -42,13 +42,13 @@ class BotHandlers:
 
     async def handle(self, text: str) -> Reply:
         try:
-            name, args = split_command(text)
-            if name == "/dl":
-                return Reply(self._dl(args), move_dashboard=True)
+            name, rest = split_command(text)
+            if name in ("/download", "/dl"):
+                return Reply(self._download(rest), move_dashboard=True)
             if name == "/tasks":
                 return Reply(None, move_dashboard=True)
             if name == "/cancel":
-                return Reply(self._cancel(parse_cancel(args)), move_dashboard=True)
+                return Reply(self._cancel(parse_cancel(rest)), move_dashboard=True)
             if name in ("/help", "/start"):
                 return Reply(HELP_TEXT)
             return Reply("未知命令，发送 /help 查看用法")
@@ -98,8 +98,8 @@ class BotHandlers:
             await self._dashboard.refresh(force=True)
             await event.answer(answer)
 
-    def _dl(self, args: list[str]) -> str:
-        state = self._queue.submit(parse_dl(args))
+    def _download(self, rest: str) -> str:
+        state = self._queue.submit(parse_download(rest))
         ahead = len(self._queue.active()) - 1
         return f"✅ 已加入队列，任务 #{state.task_id}，前面还有 {ahead} 个任务\n{state.spec.raw_link}"
 

@@ -68,45 +68,50 @@ uv run tgdl
 ```text
 📖 用法
 
-/dl <链接> [选项]
-  链接为频道链接时下载整个频道；为消息链接时只下载该条消息
-  （若属于相册则下载整个相册），加范围选项后按范围下载
-  --regex <表达式>   按正则过滤（匹配消息文字或文件名，忽略大小写）
-                    表达式以 - 开头时须写成 --regex=<表达式>
-  --from <日期>      起始时间，如 2026-01-01 或 2026-01-01T12:00
-  --to <日期>        结束时间（含当天）
-  --ids <起始>-<结束> 消息序号范围，如 --ids 100-500（与 --from/--to 互斥）
-                    结束留空表示到最后一条，如 --ids 100-
-  --type video|photo|all  媒体类型，默认 all
+/download <链接> [<起始ID> <结束ID>] [过滤表达式]
+  起始ID 为 1 表示从头开始，结束ID 为 0 表示到最后一条
+  只给消息链接、不给序号：只下载该条消息（属于相册则整个相册）
+  /dl 是 /download 的别名；直接发送一条消息链接也会下载该条消息
+
+过滤表达式（可用 and / or / && / || 与括号组合）：
+  字段：id  caption  file_name  file_size  media_type(video/photo)
+        file_extension  message_date
+  比较：>  <  >=  <=  ==  !=
+  字符串加引号；r'...' 表示正则，需整体匹配，通常写成 r'.*关键词.*'
+  大小可带单位 KB / MB / GB；日期如 2026-05-10、2026.05.10 14:30、2026-05
 
 /tasks            显示看板（当前进度、队列、历史），自动刷新
 /cancel <任务ID>   取消任务
 /help             显示本帮助
 
 示例：
-/dl https://t.me/somechannel/123               只下载第 123 条消息的媒体
-/dl https://t.me/somechannel --regex "4K" --from 2026-01-01 --to 2026-03-01
-/dl https://t.me/c/1234567890/50 --ids 50- --type video   从第 50 条下载到最后
+/download https://t.me/somechannel 1 0
+/download https://t.me/somechannel 100 200 media_type == 'video'
+/download https://t.me/c/1234567890/50 1 0 caption == r'.*#饼干姐姐.*' and message_date >= 2026-05-10
+https://t.me/somechannel/123
 ```
 
 支持的链接形式：
 
 | 形式 | 示例 | 说明 |
 |---|---|---|
-| 公开频道/群组 | `https://t.me/somechannel`、`@somechannel` | 带消息序号 `https://t.me/somechannel/123` 时只下载该条消息（属于相册则下载整个相册）；想从该条下载到最后用 `--ids 123-` |
-| 私有频道消息链接 | `https://t.me/c/1234567890/50` | 从「复制消息链接」得到，账号须已是成员；同样从 `<msg>`（这里是 50）开始 |
+| 公开频道/群组 | `https://t.me/somechannel`、`@somechannel` | 带消息序号 `https://t.me/somechannel/123` 且不给起止序号时只下载该条消息（属于相册则下载整个相册）；想从该条下载到最后写 `/download https://t.me/somechannel/123 123 0` |
+| 私有频道消息链接 | `https://t.me/c/1234567890/50` | 从「复制消息链接」得到，账号须已是成员；规则同上 |
 | 邀请链接 | `https://t.me/+AbCdEf123`、`https://t.me/joinchat/AbCdEf123` | 用户账号会自动尝试加入 |
 
 更多示例：
 
 ```text
-/dl https://t.me/somechannel                       # 下载全部视频与图片
-/dl https://t.me/somechannel --type photo          # 只要图片
-/dl https://t.me/somechannel --ids 1-50            # 只下载消息序号 1 到 50
-/dl https://t.me/somechannel --regex "ep\d+"       # 正则可不加引号，反斜杠原样保留
-/dl https://t.me/somechannel --regex=-hidden       # 正则以 - 开头时必须用 = 连接
-/cancel 3                                          # 也可写作 /cancel #3
+/download https://t.me/somechannel 1 0                       # 下载全部视频与图片
+/download https://t.me/somechannel 1 50                      # 只下载消息序号 1 到 50
+/download https://t.me/somechannel 1 0 media_type == 'photo' # 只要图片
+/download https://t.me/somechannel file_name == r'.*ep\d+.*' # 不给序号也可以直接跟过滤表达式
+/download https://t.me/somechannel/300 caption == r'.*#合集.*' and message_date >= 2026-05   # 消息链接 + 过滤：从第 300 条起筛选
+https://t.me/somechannel/123                                 # 直接发消息链接：只下这一条
+/cancel 3                                                    # 也可写作 /cancel #3
 ```
+
+过滤表达式的语法与 [telegram_media_downloader 的 download_filter](https://github.com/tangyoha/telegram_media_downloader/wiki/如何使用过滤器) 一致：字段有 `id`、`caption`、`file_name`、`file_size`、`media_type`（`video` / `photo`）、`file_extension`、`message_date`；比较运算 `> < >= <= == !=`；`and`/`&&`、`or`/`||` 与括号组合；字符串加引号，`r'...'` 为正则且需**整体匹配**（所以通常写 `r'.*关键词.*'`）；大小可带 `KB`/`MB`/`GB`；日期写法 `2026-05-10`、`2026.05.10 14:30`、`2026-05`（等于该月 1 日 0 点）。Telegram 客户端会把连续两个 `-` 自动变成长破折号，新语法里不再需要 `--` 选项，即便输入了也会被自动还原。
 
 ### 看板
 
@@ -160,7 +165,7 @@ downloads/<频道名称>/<YYYY_MM>/<消息ID> - <文件名>
 - **串行队列**：任务按提交顺序一个接一个执行，`/tasks` 可看排队情况，`/cancel <ID>` 可取消排队中或进行中的任务。
 - **任务内并发**：一个任务内的文件按 `CONCURRENCY` 并发下载（默认 3）。数值越大越容易触发 Telegram 限流，建议 3-5。
 - **限流（FloodWait）处理**：用户客户端关闭了 Telethon 的自动等待。下载阶段遇到 `FloodWaitError` / `FloodPremiumWaitError` 时会在看板里显示「限流等待 N 秒」，等待后自动重试，且不占用重试次数；解析链接 / 扫描阶段遇到限流时看板会显示「⏳ 任务 #N 限流，等待 N 秒后重试」，等待后同样自动重试。两个阶段累计等待上限均为 1 小时（3600 秒），超过则单个文件 / 整个任务标记失败。
-- **时间过滤与时区**：`--from/--to` 不带时区时按**进程本地时区**理解，`--to 2026-01-31` 含当天 23:59:59。通过环境变量 `TZ` 可指定时区，例如 `TZ=Asia/Shanghai uv run tgdl`。
+- **时间过滤与时区**：`message_date` 的日期字面量按**进程本地时区**理解；`message_date <= 2026-01-31` 表示 1 月 31 日 0 点之前（与旧工具一致，想含当天请写 `< 2026-02-01`）。通过环境变量 `TZ` 可指定时区，例如 `TZ=Asia/Shanghai uv run tgdl`。
 - **代理**：`PROXY_HOST` 与 `PROXY_PORT` 必须同时设置或同时留空，否则启动时报配置错误。两个客户端共用同一个代理。
 - **权限**：Bot 只响应 `OWNER_ID` 在私聊中发来的以 `/` 开头的消息；其他人或群组内的消息一律忽略。
 - **不可变状态**：所有任务/文件状态都是 frozen dataclass，进度更新通过 `dataclasses.replace` 生成新对象。
@@ -179,11 +184,11 @@ curl -x socks5h://127.0.0.1:7890 https://api.telegram.org -I
 
 ### 提示限流（FloodWait）
 
-Telegram 对下载速率有限制，短时间内大量下载会被要求等待几十秒到几小时。无论发生在下载阶段还是解析 / 扫描阶段，程序都会自动等待并重试，不需要干预（扫描阶段会收到一条「⏳ 限流」通知）；累计等待超过 1 小时才会放弃并标记失败，稍后重新提交即可。如果频繁出现，把 `CONCURRENCY` 调小或分批下载（用 `--ids` 缩小范围）。非会员账号在下载大文件时收到的 `FloodPremiumWaitError` 同样按限流等待处理。
+Telegram 对下载速率有限制，短时间内大量下载会被要求等待几十秒到几小时。无论发生在下载阶段还是解析 / 扫描阶段，程序都会自动等待并重试，不需要干预（扫描阶段会收到一条「⏳ 限流」通知）；累计等待超过 1 小时才会放弃并标记失败，稍后重新提交即可。如果频繁出现，把 `CONCURRENCY` 调小或分批下载（用起止序号缩小范围）。非会员账号在下载大文件时收到的 `FloodPremiumWaitError` 同样按限流等待处理。
 
 ### 「频道为私有或已被封禁，当前账号无权访问」/「无法解析频道，请确认账号已加入该频道」
 
-`https://t.me/c/<id>/<msg>` 这类链接要求登录的**用户账号已经是该频道成员**；Bot 本身没有读取频道的权限，也不能替代用户账号。新登录的 session 实体缓存为空，程序会自动拉取一次会话列表预热缓存后重试；如果仍然提示无法解析，请先在 Telegram 客户端用同一账号加入（或打开过）该频道，再重试。注意 `t.me/c/<id>/<msg>` 只下载 `<msg>` 这一条消息（及其相册），想下载整个频道请把 `/<msg>` 去掉，想从它开始下载到最后加 `--ids <msg>-`。
+`https://t.me/c/<id>/<msg>` 这类链接要求登录的**用户账号已经是该频道成员**；Bot 本身没有读取频道的权限，也不能替代用户账号。新登录的 session 实体缓存为空，程序会自动拉取一次会话列表预热缓存后重试；如果仍然提示无法解析，请先在 Telegram 客户端用同一账号加入（或打开过）该频道，再重试。注意 `t.me/c/<id>/<msg>` 不给起止序号时只下载 `<msg>` 这一条消息（及其相册），想下载整个频道请加 `1 0`，想从它开始下载到最后加 `<msg> 0`。
 
 ### 邀请链接「已发送加入申请，等待管理员审批后重试」
 
@@ -205,14 +210,14 @@ Telegram 对下载速率有限制，短时间内大量下载会被要求等待�
 
 1. 填好 `.env`，用上面的 `curl` 命令确认代理端口可用（返回 200/302）。
 2. `uv run tgdl`，完成首次登录，Bot 应发来「📊 tgdl 看板」，输入 `/` 能看到命令菜单。
-3. 在 Bot 私聊发送 `/dl https://t.me/<你有权限的公开频道> --ids <小范围>`，观察：看板每 `PROGRESS_INTERVAL` 秒更新、按钮可用、任务结束后收到一条静态汇总。
-4. 发送 `/tasks`；任务进行中发送 `/cancel 1`，确认 `.part` 被保留，再次 `/dl` 同一链接时从断点继续（看板起始进度不为 0）。
+3. 在 Bot 私聊发送 `/download https://t.me/<你有权限的公开频道> 1 5`，观察：看板每 `PROGRESS_INTERVAL` 秒更新、按钮可用、任务结束后收到一条静态汇总。
+4. 发送 `/tasks`；任务进行中发送 `/cancel 1`，确认 `.part` 被保留，再次 `/download` 同一链接时从断点继续（看板起始进度不为 0）。
 5. 再次发送同一条命令，确认已存在的文件被标记「跳过」。
 
 也可以不经过 Bot、直接在终端对真实频道跑一次小任务：
 
 ```bash
-uv run python scripts/e2e_smoke.py https://t.me/somechannel --ids 1-5
+uv run python scripts/e2e_smoke.py https://t.me/somechannel 1 5
 ```
 
 ## 开发

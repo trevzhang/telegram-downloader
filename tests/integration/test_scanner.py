@@ -13,7 +13,7 @@ from telethon.tl.functions.messages import CheckChatInviteRequest, ImportChatInv
 from telethon.tl.types import PeerChannel
 
 from tests.fakes.telegram import FakeClient, FakeEntity, FakeFile, FakeMessage
-from tgdl.filters import MediaFilter, build_filter, compile_regex
+from tgdl.filters import MediaFilter, build_filter, compile_filter
 from tgdl.models import ChannelRef, MediaKind, TaskSpec
 from tgdl.scanner import ChannelAccessError, extract_media, iter_kwargs, resolve_channel, scan
 
@@ -61,12 +61,7 @@ def test_iter_kwargs_ids_range_is_exclusive_bounds() -> None:
     assert iter_kwargs(_spec(id_from=100, id_to=500)) == {"reverse": True, "min_id": 99, "max_id": 501}
 
 
-def test_iter_kwargs_date_and_start_message() -> None:
-    spec = TaskSpec(link=ChannelRef(username="c", message_id=10), raw_link="x", date_from=T0)
-    assert iter_kwargs(spec) == {"reverse": True, "offset_date": T0, "min_id": 9}
-
-
-async def test_scan_applies_date_to_and_regex() -> None:
+async def test_scan_applies_filter_expression() -> None:
     client = FakeClient(
         messages=(
             _msg(1, days=0, text="EP01", file=VIDEO),
@@ -74,8 +69,8 @@ async def test_scan_applies_date_to_and_regex() -> None:
             _msg(3, days=5, text="EP03", file=VIDEO),
         )
     )
-    spec = _spec(date_from=T0 - timedelta(days=1), date_to=T0 + timedelta(days=2))
-    items = await scan(client, object(), spec, MediaFilter(pattern=compile_regex("ep0[12]")))
+    flt = compile_filter("message_date >= 2026-01-01 and message_date < 2026-01-03 and caption == r'EP0[12]'")
+    items = await scan(client, object(), _spec(), flt)
     assert [i.message_id for i in items] == [1, 2]
 
 
@@ -93,7 +88,7 @@ async def test_scan_propagates_album_caption() -> None:
             _msg(3, text="", file=PHOTO),
         )
     )
-    items = await scan(client, object(), _spec(), MediaFilter(pattern=compile_regex("4k")))
+    items = await scan(client, object(), _spec(), compile_filter("caption == r'.*4K.*'"))
     assert [i.message_id for i in items] == [1, 2]
     assert items[1].caption == "Album 4K"
 
@@ -114,21 +109,6 @@ async def test_resolve_maps_errors(error: Exception, match: str) -> None:
 
 def test_extract_ignores_link_preview() -> None:
     assert extract_media(_msg(7, text="see https://x", file=IMG_DOC, web_preview=object())) is None
-
-
-async def test_scan_enforces_date_from_locally_when_message_link_disables_offset_date() -> None:
-    """带消息 ID 的链接会让 Telethon 忽略 offset_date，本地必须补上闭区间下界。"""
-    client = FakeClient(
-        messages=(
-            _msg(1, days=0, file=VIDEO),
-            _msg(2, days=1, file=VIDEO),
-            _msg(3, days=2, file=VIDEO),
-            _msg(4, days=2, file=VIDEO),
-        )
-    )
-    spec = TaskSpec(link=ChannelRef(username="c", message_id=2), raw_link="x", date_from=T0 + timedelta(days=2))
-    items = await scan(client, object(), spec, MediaFilter())
-    assert [i.message_id for i in items] == [3, 4]
 
 
 @dataclass(frozen=True)

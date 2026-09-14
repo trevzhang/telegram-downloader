@@ -43,7 +43,7 @@ def _submit(queue: TaskQueue, name: str = "chana") -> None:
 
 async def test_dl_submits_task_and_shows_dashboard() -> None:
     handlers, queue, _ = _handlers()
-    reply = await handlers.handle("/dl https://t.me/chana --regex 4k")
+    reply = await handlers.handle("/download https://t.me/chana 1 0 caption == r'.*4k.*'")
     assert reply.text is not None and "任务 #1" in reply.text and "已加入队列" in reply.text
     assert reply.move_dashboard and queue.get(1) is not None
 

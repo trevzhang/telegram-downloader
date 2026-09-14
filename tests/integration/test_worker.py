@@ -46,7 +46,9 @@ async def test_happy_path_downloads_and_reports(tmp_path: Path) -> None:
 
 async def test_no_items_finishes_with_message(tmp_path: Path) -> None:
     notifier = FakeNotifier()
-    final = await _worker(_client(2), tmp_path, notifier).run(_state(regex="nomatch"), lambda s: None)
+    final = await _worker(_client(2), tmp_path, notifier).run(
+        _state(filter_expr="caption == 'nomatch'"), lambda s: None
+    )
     assert final.status is TaskStatus.DONE and final.results == ()
     assert any("没有匹配" in text for text in notifier.sent)
 

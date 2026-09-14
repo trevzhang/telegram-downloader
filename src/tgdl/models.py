@@ -11,7 +11,6 @@ from pathlib import Path
 class MediaKind(StrEnum):
     VIDEO = "video"
     PHOTO = "photo"
-    ALL = "all"
 
 
 class TaskStatus(StrEnum):
@@ -53,16 +52,13 @@ class ChannelRef:
 
 @dataclass(frozen=True)
 class TaskSpec:
-    """date_from / date_to 必须为 aware UTC datetime（由 filters.parse_datetime 保证）。"""
+    """id_from/id_to 为闭区间消息序号；filter_expr 为旧工具风格的过滤表达式（见 filters.compile_filter）。"""
 
     link: ChannelRef
     raw_link: str
-    regex: str | None = None
-    date_from: datetime | None = None
-    date_to: datetime | None = None
     id_from: int | None = None
     id_to: int | None = None
-    kind: MediaKind = MediaKind.ALL
+    filter_expr: str | None = None
 
 
 @dataclass(frozen=True)

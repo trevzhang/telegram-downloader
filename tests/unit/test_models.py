@@ -85,7 +85,7 @@ def test_replace_creates_new_state() -> None:
 
 def test_media_kind_values() -> None:
     assert MediaKind("video") is MediaKind.VIDEO
-    assert {k.value for k in MediaKind} == {"video", "photo", "all"}
+    assert {k.value for k in MediaKind} == {"video", "photo"}
 
 
 def test_file_result_holds_item() -> None:

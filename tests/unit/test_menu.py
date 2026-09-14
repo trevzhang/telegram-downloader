@@ -20,4 +20,4 @@ async def test_register_commands_sends_menu_matching_help() -> None:
     (request,) = bot.requests
     assert isinstance(request, SetBotCommandsRequest)
     assert [c.command for c in request.commands] == [name for name, _ in BOT_COMMANDS]
-    assert {"dl", "tasks", "cancel", "help"} <= {c.command for c in request.commands}
+    assert {"download", "tasks", "cancel", "help"} <= {c.command for c in request.commands}

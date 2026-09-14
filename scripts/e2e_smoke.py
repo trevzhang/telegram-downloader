@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import sys
 
-from tgdl.bot.commands import CommandError, parse_dl
+from tgdl.bot.commands import CommandError, parse_download
 from tgdl.config import ConfigError, load_settings
 from tgdl.main import build_user_client, build_worker_config
 from tgdl.models import TaskSpec, TaskState
@@ -47,7 +47,7 @@ async def run_task(spec: TaskSpec) -> None:
 def main(args: list[str]) -> int:
     # 先解析参数：用法错误必须在触碰网络/登录之前失败
     try:
-        spec = parse_dl(args)
+        spec = parse_download(" ".join(args))
     except CommandError as exc:
         print(f"参数错误: {exc}\n{USAGE}", file=sys.stderr)
         return EXIT_USAGE

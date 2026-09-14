@@ -8,7 +8,7 @@ from telethon.tl.functions.bots import SetBotCommandsRequest
 from telethon.tl.types import BotCommand, BotCommandScopeDefault
 
 BOT_COMMANDS: tuple[tuple[str, str], ...] = (
-    ("dl", "下载：/dl <链接> [选项]"),
+    ("download", "下载：/download <链接> [起始ID 结束ID] [过滤表达式]"),
     ("tasks", "显示看板：当前进度、队列与历史"),
     ("cancel", "取消任务：/cancel <任务ID>"),
     ("help", "用法说明"),
