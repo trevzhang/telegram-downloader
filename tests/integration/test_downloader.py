@@ -34,19 +34,19 @@ async def test_downloads_and_renames_part(tmp_path: Path) -> None:
         client,
         object(),
         item,
-        tmp_path / "a" / "1_v1.mp4",
+        tmp_path / "a" / "1 - v1.mp4",
         on_progress=lambda c, t: progress.append((c, t)),
         on_flood_wait=lambda s: None,
     )
     assert result.status is FileStatus.DONE
-    assert (tmp_path / "a" / "1_v1.mp4").stat().st_size == 16
+    assert (tmp_path / "a" / "1 - v1.mp4").stat().st_size == 16
     assert not list(tmp_path.rglob("*.part"))
     assert progress[-1] == (16, 16)
 
 
 async def test_skips_existing_file_with_same_size(tmp_path: Path) -> None:
     msg, item = _pair(1)
-    target = tmp_path / "1_v1.mp4"
+    target = tmp_path / "1 - v1.mp4"
     target.write_bytes(b"x" * 16)
     client = FakeClient(messages=(msg,))
     result = await download_item(
@@ -160,7 +160,7 @@ async def test_download_all_respects_concurrency_and_updates_tracker(tmp_path: P
     assert len(results) == 6 and all(r.status is FileStatus.DONE for r in results)
     assert client.max_concurrent == 2
     assert tracker.snapshot.done == 6 and tracker.snapshot.fraction == 1.0
-    assert (tmp_path / "chan" / "2026_01" / "3_v3.mp4").exists()
+    assert (tmp_path / "chan" / "2026_01" / "3 - v3.mp4").exists()
 
 
 async def test_unknown_exception_fails_without_retry_and_siblings_continue(tmp_path: Path) -> None:

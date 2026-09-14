@@ -111,7 +111,7 @@ def test_render_summary_lists_failures() -> None:
     spec = TaskSpec(link=ChannelRef(username="c"), raw_link="x")
     results = (
         FileResult(item=_item(1), path=Path("a"), status=FileStatus.DONE),
-        FileResult(item=_item(2, name="bad.mp4"), path=Path("b"), status=FileStatus.FAILED, error="timeout"),
+        FileResult(item=_item(2, name="bad.mp4"), path=Path("2 - bad.mp4"), status=FileStatus.FAILED, error="timeout"),
     )
     state = TaskState(
         task_id=1, spec=spec, status=TaskStatus.DONE, channel_title="@c", items=(_item(1), _item(2)), results=results

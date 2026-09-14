@@ -14,6 +14,7 @@ MAX_NAME_BYTES = 200
 MAX_EXT_LENGTH = 10
 PART_SUFFIX = ".part"
 MONTH_DIR_FORMAT = "%Y_%m"  # 月份子目录形如 2026_09
+NAME_SEPARATOR = " - "  # 消息 ID 与文件名之间的分隔，与旧工具一致
 DEFAULT_NAME = "file"
 
 
@@ -66,9 +67,15 @@ def channel_dir_name(entity: Any) -> str:
     return sanitize_filename(title or username or str(entity.id))
 
 
+def file_name_for(item: MediaItem) -> str:
+    """与 telegram_media_downloader 的默认命名一致：`<消息ID> - <文件名>`，没有文件名时为 `<消息ID><扩展名>`。"""
+    if not item.file_name:
+        return f"{item.message_id}{item.ext}"
+    return f"{item.message_id}{NAME_SEPARATOR}{sanitize_filename(item.file_name)}"
+
+
 def target_path(root: Path, channel_dir: str, item: MediaItem) -> Path:
-    file_name = sanitize_filename(item.file_name)
-    return root / channel_dir / item.date.strftime(MONTH_DIR_FORMAT) / f"{item.message_id}_{file_name}"
+    return root / channel_dir / item.date.strftime(MONTH_DIR_FORMAT) / file_name_for(item)
 
 
 def part_path(path: Path) -> Path:

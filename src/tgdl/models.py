@@ -70,9 +70,10 @@ class MediaItem:
     message_id: int
     date: datetime
     kind: MediaKind
-    file_name: str
+    file_name: str  # 原始文件名；Telegram 上没有文件名时为空串，此时用 ext 生成目标名
     size: int
     caption: str = ""
+    ext: str = ""  # 含点的扩展名，如 .mp4
 
 
 @dataclass(frozen=True)

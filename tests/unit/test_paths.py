@@ -50,7 +50,11 @@ def test_target_path_layout() -> None:
     item = MediaItem(
         message_id=42, date=datetime(2026, 3, 5, tzinfo=UTC), kind=MediaKind.VIDEO, file_name="v.mp4", size=1
     )
-    assert target_path(Path("dl"), "chan", item) == Path("dl/chan/2026_03/42_v.mp4")
+    assert target_path(Path("dl"), "chan", item) == Path("dl/chan/2026_03/42 - v.mp4")
+    unnamed = MediaItem(
+        message_id=7, date=datetime(2026, 3, 5, tzinfo=UTC), kind=MediaKind.PHOTO, file_name="", size=1, ext=".jpg"
+    )
+    assert target_path(Path("dl"), "chan", unnamed) == Path("dl/chan/2026_03/7.jpg")
 
 
 def test_part_path() -> None:

@@ -18,7 +18,7 @@ from telethon.errors import (
 )
 
 from tgdl.models import FileResult, FileStatus, MediaItem
-from tgdl.paths import part_path, target_path
+from tgdl.paths import file_name_for, part_path, target_path
 from tgdl.progress import ProgressTracker
 
 log = logging.getLogger(__name__)
@@ -69,9 +69,9 @@ def _describe(exc: Exception) -> str:
 
 def _log_final_failure(exc: Exception, item: MediaItem) -> None:
     if isinstance(exc, TRANSIENT_ERRORS):
-        log.error("下载失败 %s: %s", item.file_name, _describe(exc))
+        log.error("下载失败 %s: %s", file_name_for(item), _describe(exc))
     else:
-        log.exception("下载 %s 时遇到未预期异常", item.file_name)
+        log.exception("下载 %s 时遇到未预期异常", file_name_for(item))
 
 
 async def _wait_flood(
@@ -84,9 +84,9 @@ async def _wait_flood(
     """执行限流等待；累计超过上限时返回 None。"""
     waited = attempt.flood_waited + exc.seconds
     if waited > MAX_FLOOD_WAIT_TOTAL_SECONDS:
-        log.error("限流 %d 秒，累计 %d 秒超过上限: %s", exc.seconds, waited, item.file_name)
+        log.error("限流 %d 秒，累计 %d 秒超过上限: %s", exc.seconds, waited, file_name_for(item))
         return None
-    log.warning("限流 %d 秒: %s", exc.seconds, item.file_name)
+    log.warning("限流 %d 秒: %s", exc.seconds, file_name_for(item))
     on_flood_wait(exc.seconds)
     await sleep(exc.seconds + FLOOD_WAIT_MARGIN_SECONDS)
     return replace(attempt, flood_waited=waited)
@@ -184,7 +184,9 @@ async def download_all(
                 entity,
                 item,
                 target_path(root, channel_dir, item),
-                on_progress=lambda cur, total: tracker.on_file_progress(item.message_id, item.file_name, cur, total),
+                on_progress=lambda cur, total: tracker.on_file_progress(
+                    item.message_id, file_name_for(item), cur, total
+                ),
                 on_flood_wait=tracker.on_flood_wait,
                 max_retries=max_retries,
             )

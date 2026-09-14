@@ -103,14 +103,14 @@ def extract_media(message: Any) -> MediaItem | None:
         kind = MediaKind.VIDEO
     else:
         return None
-    name = file.name or f"{kind.value}{file.ext or ''}"
     return MediaItem(
         message_id=message.id,
         date=message.date,
         kind=kind,
-        file_name=sanitize_filename(name),
+        file_name=sanitize_filename(file.name) if file.name else "",
         size=file.size or 0,
         caption=message.message or "",
+        ext=file.ext or "",
     )
 
 

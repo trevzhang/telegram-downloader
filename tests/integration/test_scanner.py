@@ -43,7 +43,7 @@ def test_extract_video() -> None:
 def test_extract_photo_without_name_gets_generated_name() -> None:
     item = extract_media(_msg(2, file=PHOTO))
     assert item is not None
-    assert item.kind is MediaKind.PHOTO and item.file_name == "photo.jpg"
+    assert item.kind is MediaKind.PHOTO and item.file_name == "" and item.ext == ".jpg"
 
 
 def test_extract_image_document() -> None:

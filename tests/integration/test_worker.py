@@ -39,7 +39,7 @@ async def test_happy_path_downloads_and_reports(tmp_path: Path) -> None:
     assert [r.status for r in final.results] == [FileStatus.DONE] * 3
     assert final.channel_title == "@mychan"
     assert [s.status for s in published] == [TaskStatus.SCANNING, TaskStatus.DOWNLOADING]
-    assert (tmp_path / "My Chan" / "2026_01" / "2_v.mp4").exists()
+    assert (tmp_path / "My Chan" / "2026_01" / "2 - v.mp4").exists()
     assert notifier.edits == []  # 进度只在看板上，worker 不再编辑任何消息
     assert len(notifier.sent) == 1 and "成功：3" in notifier.sent[0] and "共 3 个" in notifier.sent[0]
 

@@ -237,8 +237,7 @@ def render_summary(state: TaskState) -> str:
     if failures:
         lines.append("失败列表：")
         lines.extend(
-            f"  • {r.item.file_name}: {truncate_text(r.error or '', MAX_ERROR_CHARS)}"
-            for r in failures[:MAX_FAILED_LINES]
+            f"  • {r.path.name}: {truncate_text(r.error or '', MAX_ERROR_CHARS)}" for r in failures[:MAX_FAILED_LINES]
         )
         if len(failures) > MAX_FAILED_LINES:
             lines.append(f"  …另有 {len(failures) - MAX_FAILED_LINES} 个，详见日志")
