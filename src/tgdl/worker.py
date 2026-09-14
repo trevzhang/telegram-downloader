@@ -74,10 +74,12 @@ async def _with_flood_retry(coro_factory: Callable[[], Awaitable[T]], notify: Fl
 
 
 def display_title(entity: Any) -> str:
+    """看板/汇总里的频道展示名：名称便于区分，@用户名可直达，两者都有时一起显示。"""
+    title = getattr(entity, "title", None)
     username = getattr(entity, "username", None)
-    if username:
-        return f"@{username}"
-    return getattr(entity, "title", None) or str(getattr(entity, "id", UNKNOWN_ENTITY_ID))
+    if title and username:
+        return f"{title} @{username}"
+    return title or (f"@{username}" if username else str(getattr(entity, "id", UNKNOWN_ENTITY_ID)))
 
 
 class TaskWorker:

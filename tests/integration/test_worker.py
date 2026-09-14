@@ -37,7 +37,7 @@ async def test_happy_path_downloads_and_reports(tmp_path: Path) -> None:
 
     assert final.status is TaskStatus.DONE
     assert [r.status for r in final.results] == [FileStatus.DONE] * 3
-    assert final.channel_title == "@mychan"
+    assert final.channel_title == "My Chan @mychan"
     assert [s.status for s in published] == [TaskStatus.SCANNING, TaskStatus.DOWNLOADING]
     assert (tmp_path / "My Chan" / "2026_01" / "2 - v.mp4").exists()
     assert notifier.edits == []  # 进度只在看板上，worker 不再编辑任何消息
@@ -190,3 +190,12 @@ async def test_hanging_notifier_does_not_block_task(tmp_path: Path) -> None:
     final = await asyncio.wait_for(worker.run(_state(), lambda s: None), timeout=2)
     assert final.status == TaskStatus.DONE
     assert client.download_calls == [1]
+
+
+def test_display_title_variants() -> None:
+    from tgdl.worker import display_title
+
+    assert display_title(FakeEntity(id=1, title="名称", username="user")) == "名称 @user"
+    assert display_title(FakeEntity(id=1, title="名称")) == "名称"
+    assert display_title(FakeEntity(id=1, username="user")) == "@user"
+    assert display_title(FakeEntity(id=7)) == "7"
