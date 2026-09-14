@@ -220,7 +220,7 @@ def render_progress(snap: ProgressSnapshot) -> str:
         for entry in sorted(snap.active, key=lambda f: f.message_id)[:MAX_ACTIVE_LINES]:
             pct = entry.current / entry.total * 100 if entry.total else 0.0
             lines.append(f"  • {entry.name}  {pct:.0f}%")
-    lines.append(f"⏭️ 已跳过：{snap.skipped} 个（已存在）  ❌ 失败：{snap.failed} 个")
+    lines.append(f"✅ 已下载：{snap.done} 个  ⏭️ 已跳过：{snap.skipped} 个（已存在）  ❌ 失败：{snap.failed} 个")
     return "\n".join(lines)
 
 
