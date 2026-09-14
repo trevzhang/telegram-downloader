@@ -13,9 +13,11 @@ import sys
 
 from tgdl.bot.commands import CommandError, parse_download
 from tgdl.config import ConfigError, load_settings
+from tgdl.filters import MediaFilter
 from tgdl.main import build_user_client
+from tgdl.models import ChannelRef, TaskSpec
 from tgdl.paths import channel_dir_name, file_name_for
-from tgdl.scanner import extract_media, resolve_channel
+from tgdl.scanner import ALBUM_WINDOW, resolve_channel, scan
 
 ID_ONLY = re.compile(r"^(\d+)\.[A-Za-z0-9]+$")
 
@@ -31,12 +33,19 @@ async def rename(link: str) -> int:
         if not targets:
             print("没有需要改名的文件")
             return 0
+        # 用扫描器整段扫描而不是逐条取消息：相册只有第一条带文本，需要传播给同组的其它媒体
+        spec = TaskSpec(
+            link=ChannelRef(username="x"),
+            raw_link=link,
+            id_from=max(1, min(targets) - ALBUM_WINDOW),
+            id_to=max(targets) + ALBUM_WINDOW,
+        )
+        items = {i.message_id: i for i in await scan(client, entity, spec, MediaFilter())}
         renamed = 0
-        for message in await client.get_messages(entity, ids=sorted(targets)):
-            item = extract_media(message) if message is not None else None
+        for message_id, src in sorted(targets.items()):
+            item = items.get(message_id)
             if item is None or not item.caption:
                 continue
-            src = targets[item.message_id]
             dst = src.with_name(file_name_for(item))
             if dst != src and not dst.exists():
                 src.rename(dst)
