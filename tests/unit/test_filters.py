@@ -63,7 +63,7 @@ def test_id_range_and_logic_with_parentheses() -> None:
 
 
 def test_date_literals_precisions_and_aliases() -> None:
-    assert _ok("message_date >= 2026-05-10 and message_date <= 2026-09-15")
+    assert _ok("date >= 2026-05-10 and date <= 2026-09-15")
     assert _ok("message_date > 2026.05 and message_date < 2026.06")
     assert _ok("message_date_time > 2026/05/10 00:00 && message_date_time < 2026-05-10 23:59:59")
     assert not _ok("message_date < 2026-05-10")

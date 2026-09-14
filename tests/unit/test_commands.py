@@ -41,7 +41,7 @@ def test_parse_download_single_message_link() -> None:
 
 
 def test_parse_download_message_link_with_filter_starts_from_that_message() -> None:
-    spec = parse_download("https://t.me/c/1234567890/50 caption == r'.*#饼干姐姐.*' and message_date >= 2026-05-10")
+    spec = parse_download("https://t.me/c/1234567890/50 caption == r'.*#饼干姐姐.*' and date >= 2026-05-10")
     assert spec.id_from == 50 and spec.id_to is None and spec.filter_expr is not None
 
 

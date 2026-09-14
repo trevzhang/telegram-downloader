@@ -18,7 +18,7 @@ HELP_TEXT = """📖 用法
 
 过滤表达式（可用 and / or / && / || 与括号组合）：
   字段：id  caption  file_name  file_size  media_type(video/photo)
-        file_extension  message_date
+        file_extension  date
   比较：>  <  >=  <=  ==  !=
   字符串加引号；r'...' 表示正则，需整体匹配，通常写成 r'.*关键词.*'
   大小可带单位 KB / MB / GB；日期如 2026-05-10、2026.05.10 14:30、2026-05
@@ -30,7 +30,7 @@ HELP_TEXT = """📖 用法
 示例：
 /download https://t.me/somechannel 1 0
 /download https://t.me/somechannel 100 200 media_type == 'video'
-/download https://t.me/c/1234567890/50 1 0 caption == r'.*#饼干姐姐.*' and message_date >= 2026-05-10
+/download https://t.me/c/1234567890/50 1 0 caption == r'.*#饼干姐姐.*' and date >= 2026-05-10
 https://t.me/somechannel/123"""
 
 LINK_PREFIX = "https://t.me/"

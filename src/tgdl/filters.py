@@ -1,8 +1,8 @@
 """过滤表达式：与 telegram_media_downloader 的 download_filter 语法保持一致。
 
-示例：caption == r'.*#饼干姐姐.*' and message_date >= 2026-05-10 and file_size < 100MB
+示例：caption == r'.*#饼干姐姐.*' and date >= 2026-05-10 and file_size < 100MB
 字段：id/message_id、caption/message_caption、file_name/media_file_name、file_size/media_file_size、
-      media_type、file_extension、message_date/message_date_time
+      media_type、file_extension、date/message_date/message_date_time
 运算：> < >= <= == !=，and/&&，or/||，括号；字符串加引号，r'...' 为正则（整体匹配）；大小单位 KB/MB/GB/TB。
 """
 
@@ -49,6 +49,7 @@ _ALIASES = {
     "file_name": "media_file_name",
     "file_size": "media_file_size",
     "message_date_time": "message_date",
+    "date": "message_date",
 }
 _COMPARE: dict[str, Callable[[Any, Any], bool]] = {
     ">": operator.gt,

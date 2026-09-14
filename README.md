@@ -75,7 +75,7 @@ uv run tgdl
 
 过滤表达式（可用 and / or / && / || 与括号组合）：
   字段：id  caption  file_name  file_size  media_type(video/photo)
-        file_extension  message_date
+        file_extension  date
   比较：>  <  >=  <=  ==  !=
   字符串加引号；r'...' 表示正则，需整体匹配，通常写成 r'.*关键词.*'
   大小可带单位 KB / MB / GB；日期如 2026-05-10、2026.05.10 14:30、2026-05
@@ -87,7 +87,7 @@ uv run tgdl
 示例：
 /download https://t.me/somechannel 1 0
 /download https://t.me/somechannel 100 200 media_type == 'video'
-/download https://t.me/c/1234567890/50 1 0 caption == r'.*#饼干姐姐.*' and message_date >= 2026-05-10
+/download https://t.me/c/1234567890/50 1 0 caption == r'.*#饼干姐姐.*' and date >= 2026-05-10
 https://t.me/somechannel/123
 ```
 
@@ -106,12 +106,12 @@ https://t.me/somechannel/123
 /download https://t.me/somechannel 1 50                      # 只下载消息序号 1 到 50
 /download https://t.me/somechannel 1 0 media_type == 'photo' # 只要图片
 /download https://t.me/somechannel file_name == r'.*ep\d+.*' # 不给序号也可以直接跟过滤表达式
-/download https://t.me/somechannel/300 caption == r'.*#合集.*' and message_date >= 2026-05   # 消息链接 + 过滤：从第 300 条起筛选
+/download https://t.me/somechannel/300 caption == r'.*#合集.*' and date >= 2026-05   # 消息链接 + 过滤：从第 300 条起筛选
 https://t.me/somechannel/123                                 # 直接发消息链接：只下这一条
 /cancel 3                                                    # 也可写作 /cancel #3
 ```
 
-过滤表达式的语法与 [telegram_media_downloader 的 download_filter](https://github.com/tangyoha/telegram_media_downloader/wiki/如何使用过滤器) 一致：字段有 `id`、`caption`、`file_name`、`file_size`、`media_type`（`video` / `photo`）、`file_extension`、`message_date`；比较运算 `> < >= <= == !=`；`and`/`&&`、`or`/`||` 与括号组合；字符串加引号，`r'...'` 为正则且需**整体匹配**（所以通常写 `r'.*关键词.*'`）；大小可带 `KB`/`MB`/`GB`；日期写法 `2026-05-10`、`2026.05.10 14:30`、`2026-05`（等于该月 1 日 0 点）。Telegram 客户端会把连续两个 `-` 自动变成长破折号，新语法里不再需要 `--` 选项，即便输入了也会被自动还原。
+过滤表达式的语法与 [telegram_media_downloader 的 download_filter](https://github.com/tangyoha/telegram_media_downloader/wiki/如何使用过滤器) 一致：字段有 `id`、`caption`、`file_name`、`file_size`、`media_type`（`video` / `photo`）、`file_extension`、`date`（也可写 `message_date`）；比较运算 `> < >= <= == !=`；`and`/`&&`、`or`/`||` 与括号组合；字符串加引号，`r'...'` 为正则且需**整体匹配**（所以通常写 `r'.*关键词.*'`）；大小可带 `KB`/`MB`/`GB`；日期写法 `2026-05-10`、`2026.05.10 14:30`、`2026-05`（等于该月 1 日 0 点）。Telegram 客户端会把连续两个 `-` 自动变成长破折号，新语法里不再需要 `--` 选项，即便输入了也会被自动还原。
 
 ### 看板
 
@@ -165,7 +165,7 @@ downloads/<频道名称>/<YYYY_MM>/<消息ID> - <文件名>
 - **串行队列**：任务按提交顺序一个接一个执行，`/tasks` 可看排队情况，`/cancel <ID>` 可取消排队中或进行中的任务。
 - **任务内并发**：一个任务内的文件按 `CONCURRENCY` 并发下载（默认 3）。数值越大越容易触发 Telegram 限流，建议 3-5。
 - **限流（FloodWait）处理**：用户客户端关闭了 Telethon 的自动等待。下载阶段遇到 `FloodWaitError` / `FloodPremiumWaitError` 时会在看板里显示「限流等待 N 秒」，等待后自动重试，且不占用重试次数；解析链接 / 扫描阶段遇到限流时看板会显示「⏳ 任务 #N 限流，等待 N 秒后重试」，等待后同样自动重试。两个阶段累计等待上限均为 1 小时（3600 秒），超过则单个文件 / 整个任务标记失败。
-- **时间过滤与时区**：`message_date` 的日期字面量按**进程本地时区**理解；`message_date <= 2026-01-31` 表示 1 月 31 日 0 点之前（与旧工具一致，想含当天请写 `< 2026-02-01`）。通过环境变量 `TZ` 可指定时区，例如 `TZ=Asia/Shanghai uv run tgdl`。
+- **时间过滤与时区**：`date` 的日期字面量按**进程本地时区**理解；`date <= 2026-01-31` 表示 1 月 31 日 0 点之前（与旧工具一致，想含当天请写 `< 2026-02-01`）。通过环境变量 `TZ` 可指定时区，例如 `TZ=Asia/Shanghai uv run tgdl`。
 - **代理**：`PROXY_HOST` 与 `PROXY_PORT` 必须同时设置或同时留空，否则启动时报配置错误。两个客户端共用同一个代理。
 - **权限**：Bot 只响应 `OWNER_ID` 在私聊中发来的以 `/` 开头的消息；其他人或群组内的消息一律忽略。
 - **不可变状态**：所有任务/文件状态都是 frozen dataclass，进度更新通过 `dataclasses.replace` 生成新对象。
