@@ -82,7 +82,7 @@ DOWNLOAD_DIR=/volume1/Porn/Telegram docker compose up -d
 
    环境变量也可以写进 `.env`（compose 会读取同目录的 `.env` 做变量替换），这样命令就不用每次带前缀。
 
-4. 日志：`docker compose logs -f tgdl`。停止：`docker compose stop`（发 SIGTERM，程序会优雅关停，宽限 30 秒）。更新代码后 `docker compose up -d --build`。
+4. 日志：`docker compose logs -f tgdl`。停止：`docker compose stop`（发 SIGTERM，程序会优雅关停，宽限 30 秒）。更新代码只需 `git pull` 后再 `docker compose up -d`：compose 配置了 `pull_policy: build`，每次启动都会先按缓存增量构建，代码没变时几秒内完成，依赖变了也会自动重装。
 
 **权限**：默认以 root 运行，写到 NAS 的文件属主会是 root。建议在 `.env` 里设置 `PUID`/`PGID` 为拥有下载目录写权限的用户（群晖可用 `id <用户名>` 查看），compose 会以该身份运行容器。
 

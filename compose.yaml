@@ -2,6 +2,7 @@ services:
   tgdl:
     build: .
     image: tgdl:latest
+    pull_policy: build  # 每次 up 都先构建：git pull 后直接 docker compose up -d 即可运行最新代码（有缓存，没改动时秒过）
     container_name: tgdl
     restart: unless-stopped
     env_file: .env
