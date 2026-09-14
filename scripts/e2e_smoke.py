@@ -1,6 +1,6 @@
 """手动端到端冒烟：对真实频道跑一次小任务，不进 CI。
 
-用法: uv run python scripts/e2e_smoke.py https://t.me/somechannel --ids 1-5
+用法: uv run python scripts/e2e_smoke.py https://t.me/somechannel 1 5
 
 需要已填好的 .env；首次运行会在终端交互完成用户账号登录。
 """
