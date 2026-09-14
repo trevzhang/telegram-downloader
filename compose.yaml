@@ -1,0 +1,22 @@
+services:
+  tgdl:
+    build: .
+    image: tgdl:latest
+    container_name: tgdl
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+      DOWNLOAD_DIR: /downloads
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - ./data:/data
+      - ${DOWNLOAD_DIR:-./downloads}:/downloads
+    # 容器内访问宿主机代理：.env 里写 PROXY_HOST=host.docker.internal
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    # NAS 上建议改成拥有下载目录写权限的用户，如 "1026:100"
+    user: ${PUID:-0}:${PGID:-0}
+    stdin_open: true
+    tty: true
+    stop_grace_period: 30s

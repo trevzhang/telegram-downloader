@@ -186,7 +186,9 @@ async def main_async(settings: Settings) -> None:
     user, bot = build_clients(settings)
     main_task = asyncio.current_task()
     if main_task is not None:
-        asyncio.get_running_loop().add_signal_handler(signal.SIGINT, make_sigint_handler(main_task))
+        handler = make_sigint_handler(main_task)
+        for sig in (signal.SIGINT, signal.SIGTERM):  # docker stop 发 SIGTERM，同样优雅关停
+            asyncio.get_running_loop().add_signal_handler(sig, handler)
     try:
         await start_clients(user, bot, settings)
         log.info("用户与 Bot 客户端已登录，代理: %s", "已启用" if settings.proxy() else "直连")
@@ -217,6 +219,12 @@ def run() -> None:
         asyncio.run(main_async(settings))
     except ConfigError as exc:
         print(f"启动失败: {exc}", file=sys.stderr)
+        sys.exit(1)
+    except (OSError, EOFError) as exc:  # 连不上 Telegram：通常是代理未配置或容器内填了 127.0.0.1
+        print(
+            f"启动失败: 无法连接 Telegram（请检查代理 PROXY_HOST/PROXY_PORT）: {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
         sys.exit(1)
     except (KeyboardInterrupt, asyncio.CancelledError):  # 自定义 SIGINT 处理下 asyncio.run 抛出的是 CancelledError
         print("已退出")

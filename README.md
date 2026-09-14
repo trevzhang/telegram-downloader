@@ -7,6 +7,7 @@
 - [准备工作](#准备工作)
 - [安装](#安装)
 - [首次登录](#首次登录)
+- [Docker 部署](#docker-部署)
 - [命令用法](#命令用法)
 - [文件存放结构](#文件存放结构)
 - [下载到 NAS](#下载到-nas)
@@ -60,6 +61,38 @@ uv run tgdl
 请在项目根目录执行。首次运行会在终端提示输入**手机号**（国际格式，如 `+8613800000000`）和 Telegram 发来的**验证码**；开启了两步验证的账号还会要求输入密码，因此首次登录必须在交互终端运行（非 TTY 环境会直接报错提示）。**注意：手机号那一步必须输入你自己的个人账号手机号，千万不要输入 Bot Token。** Bot 账号无法读取频道历史；程序会在登录后校验，若发现 `data/user.session` 登录的是 Bot，会报错并要求删除该文件后重新登录。登录成功后 session 持久化在 `data/user.session` 与 `data/bot.session`，之后启动免登录。若更换了 `BOT_TOKEN`，请删除旧的 `data/bot.session` 再启动，否则会提示该 session 属于另一个 Bot。
 
 启动成功后 Bot 会给你发出「📊 tgdl 看板」消息并注册命令菜单（输入 `/` 可直接选命令）；如果你还没给 Bot 发过 `/start`，看板会发送失败，程序只记录警告并继续运行，之后任意一条命令都会重新发出看板。日志同时输出到控制台与 `data/logs/tgdl.log`（按天轮转，保留 14 天）。Telethon 因服务器或代理回收空闲连接而自动重连时产生的「Server closed the connection」告警已被过滤，不影响功能。按 `Ctrl+C` 退出：第一次会优雅关停（取消当前任务、发送汇总、断开连接，每步最多等待十几秒），如果网络卡住导致迟迟不退出，再按一次 `Ctrl+C` 会强制退出。
+
+## Docker 部署
+
+仓库自带 `Dockerfile` 与 `compose.yaml`，适合放在 NAS 上长期运行。
+
+1. 准备 `.env`（同上），并把代理地址改为宿主机：`PROXY_HOST=host.docker.internal`。容器里 `127.0.0.1` 指向容器自身，`host.docker.internal` 由 compose 映射到宿主机。
+2. 下载目录通过环境变量指定宿主机路径，例如群晖上 `DOWNLOAD_DIR=/volume1/Porn/Telegram`；不设则用仓库下的 `./downloads`。session 与日志落在 `./data`。
+3. **首次登录必须交互式运行**（要输手机号和验证码），之后再转后台：
+
+```bash
+DOWNLOAD_DIR=/volume1/Porn/Telegram docker compose run --rm tgdl
+```
+
+   登录成功、看到「用户与 Bot 客户端已登录」后按 `Ctrl+C` 退出，再启动常驻服务：
+
+```bash
+DOWNLOAD_DIR=/volume1/Porn/Telegram docker compose up -d
+```
+
+   环境变量也可以写进 `.env`（compose 会读取同目录的 `.env` 做变量替换），这样命令就不用每次带前缀。
+
+4. 日志：`docker compose logs -f tgdl`。停止：`docker compose stop`（发 SIGTERM，程序会优雅关停，宽限 30 秒）。更新代码后 `docker compose up -d --build`。
+
+**权限**：默认以 root 运行，写到 NAS 的文件属主会是 root。建议在 `.env` 里设置 `PUID`/`PGID` 为拥有下载目录写权限的用户（群晖可用 `id <用户名>` 查看），compose 会以该身份运行容器。
+
+**时区**：`TZ` 默认 `Asia/Shanghai`，影响过滤表达式里日期的解释，可在 `.env` 覆盖。
+
+**存量改名脚本**在容器里同样可用（需先 `docker compose stop`）：
+
+```bash
+docker compose run --rm tgdl /app/.venv/bin/python scripts/rename_unnamed.py https://t.me/c/<id>/1
+```
 
 ## 命令用法
 
