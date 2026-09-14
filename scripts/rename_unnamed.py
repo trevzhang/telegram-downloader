@@ -2,7 +2,7 @@
 
 用法（需先停止 Bot，脚本要用用户 session）：
     uv run python scripts/rename_unnamed.py <频道链接>
-只处理该频道目录下形如 123.mp4 的文件；找不到对应消息或消息没有文本的保持原样。
+只处理该频道目录下形如 123.mp4 或 123..mp4（旧工具的空文件名形态）的文件；找不到对应消息或消息没有文本的保持原样。
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from tgdl.models import ChannelRef, TaskSpec
 from tgdl.paths import channel_dir_name, file_name_for
 from tgdl.scanner import ALBUM_WINDOW, resolve_channel, scan
 
-ID_ONLY = re.compile(r"^(\d+)\.[A-Za-z0-9]+$")
+ID_ONLY = re.compile(r"^(\d+)\.{1,2}[A-Za-z0-9]+$")  # 兼容旧工具生成的 148..mp4（空文件名）
 
 
 async def rename(link: str) -> int:
