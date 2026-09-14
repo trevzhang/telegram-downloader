@@ -130,7 +130,7 @@ def _string_matcher(literal: str) -> Callable[[str], bool]:
     if not is_regex:
         return lambda value: value == body
     try:
-        pattern = regex.compile(body)
+        pattern = regex.compile(body, regex.DOTALL)  # caption 多为多行文本，. 必须能跨越换行
     except regex.error as exc:
         raise FilterError(f"正则表达式无效: {body} ({exc})") from exc
     return lambda value: _regex_fullmatch(pattern, value)

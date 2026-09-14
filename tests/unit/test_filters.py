@@ -127,3 +127,8 @@ def test_validate_spec_checks_ids_and_filter() -> None:
         validate_spec(_spec(id_from=0))
     with pytest.raises(FilterError):
         validate_spec(_spec(filter_expr="caption == 1"))
+
+
+def test_regex_matches_across_newlines_in_caption() -> None:
+    assert _ok("caption == r'.*#饼干姐姐.*'", caption="标题\n#饼干姐姐 #合集\n第三行")
+    assert _ok("caption==r'.*?#饼干姐姐.*?'", caption="#饼干姐姐\n")
