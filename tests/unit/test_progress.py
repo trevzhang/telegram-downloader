@@ -117,7 +117,7 @@ def test_render_summary_lists_failures() -> None:
         task_id=1, spec=spec, status=TaskStatus.DONE, channel_title="@c", items=(_item(1), _item(2)), results=results
     )
     text = render_summary(state)
-    assert "成功：1" in text and "失败：1" in text
+    assert "✅ 成功 1" in text and "❌ 失败 1" in text
     assert "bad.mp4" in text and "timeout" in text
     assert "已取消" in render_summary(replace(state, status=TaskStatus.CANCELLED))
 

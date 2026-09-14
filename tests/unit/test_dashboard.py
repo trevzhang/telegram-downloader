@@ -69,7 +69,7 @@ def test_render_queue_view_lists_current_and_queued() -> None:
 
 def test_render_history_view_lists_finished() -> None:
     view = render_dashboard(_running_data(), VIEW_HISTORY)
-    assert "任务 #1" in view.text and "成功：1" in view.text
+    assert "任务 #1" in view.text and "✅ 成功 1" in view.text
     assert "没有" in render_dashboard(DashboardData(), VIEW_HISTORY).text
 
 
