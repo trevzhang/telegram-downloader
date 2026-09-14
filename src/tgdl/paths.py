@@ -15,6 +15,7 @@ MAX_EXT_LENGTH = 10
 PART_SUFFIX = ".part"
 MONTH_DIR_FORMAT = "%Y_%m"  # 月份子目录形如 2026_09
 NAME_SEPARATOR = " - "  # 消息 ID 与文件名之间的分隔，与旧工具一致
+_NEWLINES = re.compile(r"\s*[\r\n]+\s*")
 DEFAULT_NAME = "file"
 
 
@@ -67,11 +68,20 @@ def channel_dir_name(entity: Any) -> str:
     return sanitize_filename(title or username or str(entity.id))
 
 
+def caption_as_name(caption: str) -> str:
+    """消息文本转文件名主干：换行折叠为 `_`（与旧工具 validate_title 一致），去掉首尾空白。"""
+    return _NEWLINES.sub("_", caption.strip())
+
+
 def file_name_for(item: MediaItem) -> str:
-    """与 telegram_media_downloader 的默认命名一致：`<消息ID> - <文件名>`，没有文件名时为 `<消息ID><扩展名>`。"""
-    if not item.file_name:
+    """与 telegram_media_downloader 的命名一致：`<消息ID> - <文件名>`；
+    没有文件名时用消息文本补位；再没有则只剩 `<消息ID><扩展名>`。"""
+    stem = item.file_name or caption_as_name(item.caption)
+    if not stem:
         return f"{item.message_id}{item.ext}"
-    return f"{item.message_id}{NAME_SEPARATOR}{sanitize_filename(item.file_name)}"
+    if not item.file_name:
+        stem += item.ext
+    return f"{item.message_id}{NAME_SEPARATOR}{sanitize_filename(stem)}"
 
 
 def target_path(root: Path, channel_dir: str, item: MediaItem) -> Path:

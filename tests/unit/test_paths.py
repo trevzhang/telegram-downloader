@@ -57,6 +57,31 @@ def test_target_path_layout() -> None:
     assert target_path(Path("dl"), "chan", unnamed) == Path("dl/chan/2026_03/7.jpg")
 
 
+def test_unnamed_media_uses_caption_with_newlines_folded() -> None:
+    caption = (
+        "#养只果果 #yzgg99 推特绿帽老公NTR淫妻原创博主\n9月6日最新VIP电报群福利\n公共人妻肉便器多人胡乱交合，轮流內射"
+    )
+    item = MediaItem(
+        message_id=3992,
+        date=datetime(2026, 9, 6, tzinfo=UTC),
+        kind=MediaKind.VIDEO,
+        file_name="",
+        size=1,
+        caption=caption,
+        ext=".mp4",
+    )
+    name = target_path(Path("dl"), "chan", item).name
+    expected = (
+        "3992 - #养只果果 #yzgg99 推特绿帽老公NTR淫妻原创博主_9月6日最新VIP电报群福利_"
+        "公共人妻肉便器多人胡乱交合，轮流內射.mp4"
+    )
+    assert name == expected
+    named = MediaItem(**{**item.__dict__, "file_name": "clip.mp4"})
+    assert target_path(Path("dl"), "chan", named).name == "3992 - clip.mp4"  # 有文件名时不用消息文本
+    long_caption = MediaItem(**{**item.__dict__, "caption": "视" * 300})
+    assert len(target_path(Path("dl"), "chan", long_caption).name.encode()) <= 220
+
+
 def test_part_path() -> None:
     assert part_path(Path("a/b.mp4")) == Path("a/b.mp4.part")
 
