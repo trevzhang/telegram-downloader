@@ -16,7 +16,7 @@ from tgdl.main import build_user_client, build_worker_config
 from tgdl.models import TaskSpec, TaskState
 from tgdl.worker import TaskWorker
 
-USAGE = "用法: uv run python scripts/e2e_smoke.py <链接> [--ids 起始-结束] [--regex ...] [--type video|photo|all]"
+USAGE = "用法: uv run python scripts/e2e_smoke.py <链接> [<起始ID> <结束ID>] [过滤表达式]"
 EXIT_USAGE = 2
 EXIT_CONFIG = 1
 EXIT_INTERRUPTED = 130
