@@ -66,7 +66,7 @@ uv run tgdl
 
 仓库自带 `Dockerfile` 与 `compose.yaml`，适合放在 NAS 上长期运行。
 
-1. 准备 `.env`（同上），并把代理地址改为宿主机：`PROXY_HOST=host.docker.internal`。容器里 `127.0.0.1` 指向容器自身，`host.docker.internal` 由 compose 映射到宿主机。
+1. 准备 `.env`（同上）。代理地址不用改：容器里 `127.0.0.1` 指向容器自身，compose 会自动把 `PROXY_HOST` 覆盖为 `host.docker.internal`（宿主机）。代理跑在别的机器上时，在 `.env` 里加 `DOCKER_PROXY_HOST=<那台机器的 IP>`；不用代理则写 `DOCKER_PROXY_HOST=`（留空）。在 Linux/NAS 上，宿主机代理必须监听非回环地址（Clash 需 `allow-lan: true`），否则容器连不上；也可以改用 `network_mode: host` 让容器直接使用宿主机网络，此时 `127.0.0.1:7890` 可直接访问。
 2. 下载目录通过环境变量指定宿主机路径，例如群晖上 `DOWNLOAD_DIR=/volume1/Porn/Telegram`；不设则用仓库下的 `./downloads`。session 与日志落在 `./data`。
 3. **首次登录必须交互式运行**（要输手机号和验证码），之后再转后台：
 

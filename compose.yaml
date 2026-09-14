@@ -9,10 +9,11 @@ services:
       DATA_DIR: /data
       DOWNLOAD_DIR: /downloads
       TZ: ${TZ:-Asia/Shanghai}
+      # 容器内 127.0.0.1 是容器自身，代理地址自动改为宿主机；代理在别的机器时在 .env 里设 DOCKER_PROXY_HOST=<IP>
+      PROXY_HOST: ${DOCKER_PROXY_HOST-host.docker.internal}
     volumes:
       - ./data:/data
       - ${DOWNLOAD_DIR:-./downloads}:/downloads
-    # 容器内访问宿主机代理：.env 里写 PROXY_HOST=host.docker.internal
     extra_hosts:
       - host.docker.internal:host-gateway
     # NAS 上建议改成拥有下载目录写权限的用户，如 "1026:100"
