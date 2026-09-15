@@ -40,9 +40,10 @@ def test_parse_download_single_message_link() -> None:
     assert spec.link.message_id == 50 and spec.id_from is None and spec.id_to is None
 
 
-def test_parse_download_message_link_with_filter_starts_from_that_message() -> None:
+def test_parse_download_message_link_with_filter_scans_whole_chat() -> None:
     spec = parse_download("https://t.me/c/1234567890/50 caption == r'.*#饼干姐姐.*' and date >= 2026-05-10")
-    assert spec.id_from == 50 and spec.id_to is None and spec.filter_expr is not None
+    assert spec.id_from is None and spec.id_to is None and spec.filter_expr is not None
+    assert spec.link.message_id == 50
 
 
 def test_parse_download_message_link_with_explicit_range_uses_range() -> None:

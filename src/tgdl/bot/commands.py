@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from dataclasses import replace
 
 from tgdl.filters import FilterError, validate_spec
 from tgdl.link_parser import LinkParseError, parse_link
@@ -13,7 +12,8 @@ HELP_TEXT = """📖 用法
 
 /download <链接> [<起始ID> <结束ID>] [过滤表达式]
   起始ID 为 1 表示从头开始，结束ID 为 0 表示到最后一条
-  只给消息链接、不给序号：只下载该条消息（属于相册则整个相册）
+  只发消息链接、不带序号和过滤：只下载该条消息（属于相册则整个相册）
+  带了序号或过滤表达式时，链接里的消息 ID 只用来定位频道，按范围/条件扫描整个频道
   /dl 是 /download 的别名；直接发送一条消息链接也会下载该条消息
 
 过滤表达式（可用 and / or / && / || 与括号组合）：
@@ -84,8 +84,6 @@ def parse_download(rest: str) -> TaskSpec:
         link = parse_link(link_text)
         id_from, id_to, filter_expr = _split_range(tail)
         spec = TaskSpec(link=link, raw_link=link_text, id_from=id_from, id_to=id_to, filter_expr=filter_expr or None)
-        if spec.filter_expr and id_from is None and link.message_id is not None:
-            spec = replace(spec, id_from=link.message_id)  # 消息链接 + 过滤条件：从该条开始筛选而不是只下这一条
         validate_spec(spec)
     except (LinkParseError, FilterError) as exc:
         raise CommandError(str(exc)) from exc

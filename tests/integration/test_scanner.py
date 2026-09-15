@@ -241,3 +241,10 @@ async def test_scan_single_message_link_without_media_returns_empty() -> None:
     client = FakeClient(messages=(_msg(50, text="just text"),))
     spec = TaskSpec(link=ChannelRef(username="c", message_id=50), raw_link="x")
     assert await scan(client, object(), spec, build_filter(spec)) == ()
+
+
+async def test_message_link_with_filter_scans_whole_chat_not_from_that_message() -> None:
+    client = FakeClient(messages=tuple(_msg(i, text=f"#tag {i}", file=VIDEO) for i in (10, 20, 30)))
+    spec = TaskSpec(link=ChannelRef(username="c", message_id=20), raw_link="x", filter_expr="caption == r'.*#tag.*'")
+    items = await scan(client, object(), spec, compile_filter(spec.filter_expr))
+    assert [i.message_id for i in items] == [10, 20, 30]

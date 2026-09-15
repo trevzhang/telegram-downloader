@@ -103,7 +103,8 @@ docker compose run --rm tgdl /app/.venv/bin/python scripts/rename_unnamed.py htt
 
 /download <链接> [<起始ID> <结束ID>] [过滤表达式]
   起始ID 为 1 表示从头开始，结束ID 为 0 表示到最后一条
-  只给消息链接、不给序号：只下载该条消息（属于相册则整个相册）
+  只发消息链接、不带序号和过滤：只下载该条消息（属于相册则整个相册）
+  带了序号或过滤表达式时，链接里的消息 ID 只用来定位频道，按范围/条件扫描整个频道
   /dl 是 /download 的别名；直接发送一条消息链接也会下载该条消息
 
 过滤表达式（可用 and / or / && / || 与括号组合）：
@@ -128,7 +129,7 @@ https://t.me/somechannel/123
 
 | 形式 | 示例 | 说明 |
 |---|---|---|
-| 公开频道/群组 | `https://t.me/somechannel`、`@somechannel` | 带消息序号 `https://t.me/somechannel/123` 且不给起止序号时只下载该条消息（属于相册则下载整个相册）；想从该条下载到最后写 `/download https://t.me/somechannel/123 123 0` |
+| 公开频道/群组 | `https://t.me/somechannel`、`@somechannel` | 带消息序号 `https://t.me/somechannel/123` 且不带起止序号、不带过滤表达式时只下载该条消息（属于相册则下载整个相册）；一旦带了序号或过滤，`/123` 只用来定位频道。想从该条下载到最后写 `/download https://t.me/somechannel/123 123 0` |
 | 私有频道消息链接 | `https://t.me/c/1234567890/50` | 从「复制消息链接」得到，账号须已是成员；规则同上 |
 | 邀请链接 | `https://t.me/+AbCdEf123`、`https://t.me/joinchat/AbCdEf123` | 用户账号会自动尝试加入 |
 
@@ -139,7 +140,7 @@ https://t.me/somechannel/123
 /download https://t.me/somechannel 1 50                      # 只下载消息序号 1 到 50
 /download https://t.me/somechannel 1 0 media_type == 'photo' # 只要图片
 /download https://t.me/somechannel file_name == r'.*ep\d+.*' # 不给序号也可以直接跟过滤表达式
-/download https://t.me/somechannel/300 caption == r'.*#合集.*' and date >= 2026-05   # 消息链接 + 过滤：从第 300 条起筛选
+/download https://t.me/somechannel/300 caption == r'.*#合集.*' and date >= 2026-05   # 带过滤时链接里的 /300 只用来定位频道，扫描整个频道
 https://t.me/somechannel/123                                 # 直接发消息链接：只下这一条
 /cancel 3                                                    # 也可写作 /cancel #3
 ```
@@ -221,7 +222,7 @@ Telegram 对下载速率有限制，短时间内大量下载会被要求等待�
 
 ### 「频道为私有或已被封禁，当前账号无权访问」/「无法解析频道，请确认账号已加入该频道」
 
-`https://t.me/c/<id>/<msg>` 这类链接要求登录的**用户账号已经是该频道成员**；Bot 本身没有读取频道的权限，也不能替代用户账号。新登录的 session 实体缓存为空，程序会自动拉取一次会话列表预热缓存后重试；如果仍然提示无法解析，请先在 Telegram 客户端用同一账号加入（或打开过）该频道，再重试。注意 `t.me/c/<id>/<msg>` 不给起止序号时只下载 `<msg>` 这一条消息（及其相册），想下载整个频道请加 `1 0`，想从它开始下载到最后加 `<msg> 0`。
+`https://t.me/c/<id>/<msg>` 这类链接要求登录的**用户账号已经是该频道成员**；Bot 本身没有读取频道的权限，也不能替代用户账号。新登录的 session 实体缓存为空，程序会自动拉取一次会话列表预热缓存后重试；如果仍然提示无法解析，请先在 Telegram 客户端用同一账号加入（或打开过）该频道，再重试。注意 `t.me/c/<id>/<msg>` 不带起止序号、不带过滤时只下载 `<msg>` 这一条消息（及其相册）；带了序号或过滤表达式则扫描整个频道，想从它开始下载到最后加 `<msg> 0`。
 
 ### 邀请链接「已发送加入申请，等待管理员审批后重试」
 

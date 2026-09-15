@@ -115,8 +115,8 @@ def extract_media(message: Any) -> MediaItem | None:
 
 
 def is_single_message(spec: TaskSpec) -> bool:
-    """链接带消息 ID 且没有任何范围条件：只下载这一条消息（及其所属相册）。"""
-    return spec.link.message_id is not None and spec.id_from is None and spec.id_to is None
+    """裸消息链接（无序号范围、无过滤表达式）：只下载这一条消息（及其所属相册）。"""
+    return spec.link.message_id is not None and spec.id_from is None and spec.id_to is None and not spec.filter_expr
 
 
 def iter_kwargs(spec: TaskSpec) -> dict[str, Any]:
